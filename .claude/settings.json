@@ -10,6 +10,16 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const fs=require('fs');try{const lines=fs.readFileSync('CLAUDE.md','utf8').split('\\n').length;if(lines>300){console.error('\\n[Hook] ⚠ CLAUDE.md is '+lines+' lines (limit: 300).\\nEvery 100 extra lines burns ~2,500 tokens on every future session.\\nRun /trim or manually archive resolved bugs and completed kanban tasks.\\n');}}catch(e){}\""
+          }
+        ]
+      }
     ]
   },
   "permissions": {
@@ -88,6 +98,7 @@
       "Bash(wc*)",
       "Bash(echo*)",
       "Bash(touch*)",
+      "Bash(sed*)",
 
       "Bash(psql*)",
       "Bash(redis-cli*)",

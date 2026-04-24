@@ -40,7 +40,10 @@ cd ~/projects/your-project
 │   ├── BACKLOG.md             ← Feature requests
 │   ├── DECISIONS.md           ← Architecture decisions
 │   ├── DEPLOYMENT.md          ← Deployment runbook
-│   └── pipeline/              ← Per-step docs (agents write here)
+│   ├── pipeline/              ← Per-step docs (agents write here)
+│   ├── CODE-STANDARDS.md      ← naming, patterns, testing rules (read on demand)
+│   ├── PATTERNS.md            ← design patterns reference (read on demand)
+│   └── AI-FIRST.md            ← token strategy, model routing, caching guide
 ├── plans/forward.md           ← Product roadmap (steps for /pipeline)
 ├── apps/web/                  ← Next.js 15 frontend
 ├── services/api/              ← FastAPI backend (Router→Service→Repo)
@@ -58,6 +61,7 @@ cd ~/projects/your-project
 /bug "description"             → triage and log to DOCS/BUGS.md
 /feature "idea"                → intake a feature into plans/forward.md
 /resume-pr <PR#>               → pick up a stalled pipeline
+/trim                          → archive completed items, check CLAUDE.md size
 ```
 
 ## Key design decisions

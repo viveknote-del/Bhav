@@ -242,6 +242,22 @@ OPENAI_API_KEY=
 
 ---
 
+
+## Token Hygiene
+
+**This file loads on every session.** Every 100 lines = ~2,500 tokens burned before you type anything.
+
+Hard limits:
+- `CLAUDE.md` — 300 lines max. Trim before adding. Every section must earn its place.
+- `DOCS/BUGS.md` — active bugs only. Resolved bugs → `/trim` archives them to `DOCS/BUGS-ARCHIVE.md`.
+- `DOCS/KANBAN.md` — in-progress and backlog only. Completed steps → `/trim` archives them.
+- `DOCS/pipeline/step-N/summary.md` — these ARE the AI cross-session memory. Never skip writing them.
+
+Run `/trim` every 3-5 merged PRs. It takes 30 seconds and saves thousands of tokens per session.
+
+Do NOT add architecture notes, decision logs, or pitfall discoveries to this file — they belong in
+`ARCHITECTURE.md`, `DOCS/DECISIONS.md`, or the relevant step's `summary.md`.
+
 ## Agent Instructions
 
 - **Always update this file** when completing tasks, fixing bugs, or making architectural decisions.
@@ -279,8 +295,11 @@ When the user's request matches a command, invoke it as your FIRST action.
 ## Reference Docs
 
 - **Task board:** [DOCS/KANBAN.md](./DOCS/KANBAN.md)
-- **Deployment:** [DOCS/DEPLOYMENT.md](./DOCS/DEPLOYMENT.md)
-- **Architecture:** [ARCHITECTURE.md](./ARCHITECTURE.md)
 - **Bug tracker:** [DOCS/BUGS.md](./DOCS/BUGS.md)
 - **Deferred items:** [DOCS/DEFERRED.md](./DOCS/DEFERRED.md)
+- **Architecture:** [ARCHITECTURE.md](./ARCHITECTURE.md)
+- **Deployment:** [DOCS/DEPLOYMENT.md](./DOCS/DEPLOYMENT.md)
 - **Decisions:** [DOCS/DECISIONS.md](./DOCS/DECISIONS.md)
+- **Code standards:** [DOCS/CODE-STANDARDS.md](./DOCS/CODE-STANDARDS.md) ← read when implementing
+- **Design patterns:** [DOCS/PATTERNS.md](./DOCS/PATTERNS.md) ← read when designing a feature
+- **AI-first guide:** [DOCS/AI-FIRST.md](./DOCS/AI-FIRST.md) ← read when building AI features
