@@ -241,61 +241,175 @@ Wait for user response. If `autonomous` mode: skip this gate.
 
 ---
 
-## Phase 3 — Implementation
+## Phase 3 — Implementation (parallel agents with worktree isolation)
 
 **Model: haiku by default. Escalate to opus on any failure.**
 
-### Phase 3A — User journeys (main session, before spawning agents)
+### Phase 3A — Decompose into parallel tasks
 
-Write `DOCS/pipeline/step-{N}/journeys.md`:
+Read `DOCS/pipeline/step-{N}/design.md`. Break it into independent implementation tasks.
 
-For each user story in requirements.md, write the complete expected UI and API flow.
-This file is read by the implementing agent to understand what "done" looks like from the user's perspective.
+Rules for task decomposition:
+- Each task touches a distinct set of files (no overlap → no merge conflicts)
+- Backend tasks: group by layer (migration, repository, service, router, tests)
+- Frontend tasks: group by page or component (one page = one task)
+- Each task must be self-contained: a task that writes a router also writes its tests
 
-### Phase 3B — Spawn implementing agents
+Write the task list to `DOCS/pipeline/step-{N}/journeys.md`:
 
-Spawn one agent per implementation task from design.md:
+```markdown
+# Step N — Implementation Tasks
+
+## Task 1: Database migration + repository
+Files: packages/database/migrations/0002_*.sql, services/api/repositories/item_repo.py
+Tests: services/api/tests/test_item_repo.py
+Agent: haiku
+
+## Task 2: Service layer + business logic
+Files: services/api/services/item_service.py, services/api/models/item.py
+Tests: services/api/tests/test_item_service.py
+Depends on: Task 1 (needs repo)
+Agent: haiku
+
+## Task 3: Router endpoints
+Files: services/api/routers/items.py
+Tests: services/api/tests/test_items_router.py
+Depends on: Task 2 (needs service)
+Agent: haiku
+
+## Task 4: Frontend list + detail pages
+Files: apps/web/src/app/(app)/items/page.tsx, apps/web/src/hooks/useItems.ts
+Tests: apps/web/src/__tests__/items.test.tsx
+Depends on: none (can mock API)
+Agent: haiku
+
+## Task 5: E2E tests
+Files: apps/web/e2e/items.spec.ts
+Depends on: Tasks 3 + 4 (needs both API and UI)
+Agent: haiku
+```
+
+### Phase 3B — Execute tasks (parallel where possible, sequential where dependent)
+
+Group tasks by dependency depth and run each depth level in parallel:
 
 ```
-For each task:
-  Agent(model="haiku", prompt="
-    Read DOCS/pipeline/step-{N}/design.md and DOCS/pipeline/step-{N}/journeys.md.
-    Read CLAUDE.md for project conventions.
-    Implement: [specific task from design.md]
+Depth 0 (no deps — run in parallel):
+  Agent(model="haiku", isolation="worktree") → Task 1: migration + repo
+  Agent(model="haiku", isolation="worktree") → Task 4: frontend pages
+
+Depth 1 (depends on depth 0 — run in parallel after depth 0 completes):
+  Agent(model="haiku", isolation="worktree") → Task 2: service layer
+
+Depth 2:
+  Agent(model="haiku", isolation="worktree") → Task 3: router endpoints
+
+Depth 3:
+  Agent(model="haiku", isolation="worktree") → Task 5: E2E tests
+```
+
+**Concrete Agent tool call pattern for each task:**
+
+```
+Agent(
+  subagent_type: "general-purpose",
+  model: "haiku",
+  isolation: "worktree",
+  description: "Implement Task {T}: {task name}",
+  prompt: "
+    You are implementing Task {T} of Step {N} for {{PROJECT_DISPLAY_NAME}}.
     
-    Follow the FastAPI layer conventions in CLAUDE.md:
-      - Routers never import repositories
-      - All AI calls through providers/llm.py
-      
-    After implementing:
-    1. Run: pytest services/api/tests/ -v (or pnpm test)
-    2. If tests pass → report done with commit SHA
-    3. If tests fail → fix once, re-run, report status
+    CONTEXT — read these files first:
+    - CLAUDE.md (project conventions — CRITICAL)
+    - DOCS/pipeline/step-{N}/design.md (what to build)
+    - DOCS/pipeline/step-{N}/journeys.md (task breakdown + file assignments)
+    - ARCHITECTURE.md (current system shape)
     
-    Write any blockers or tech debt to DOCS/pipeline/step-{N}/issues.md
-  ")
+    YOUR TASK:
+    {paste the specific task description from journeys.md}
+    
+    FILES YOU OWN (only touch these):
+    {list the exact files from the task breakdown}
+    
+    CONVENTIONS:
+    - FastAPI: Router → Service → Repository. Never skip layers.
+    - All AI calls through providers/llm.py
+    - All API routes under /v1/ prefix
+    - Pydantic models: separate request vs response types
+    - Tests: AAA pattern (Arrange/Act/Assert)
+    - See DOCS/CODE-STANDARDS.md for naming + patterns
+    
+    AFTER IMPLEMENTING:
+    1. Write unit tests for every public function
+    2. Run: pytest services/api/tests/ -v (or cd apps/web && pnpm test)
+    3. Run: cd apps/web && pnpm tsc --noEmit (if touching frontend)
+    4. If tests pass → commit with: git commit -m 'feat(step-{N}): {task description}'
+    5. If tests fail → fix and re-run (one retry)
+    6. If still failing → report the failure, do NOT leave broken code
+    
+    WRITE BLOCKERS to DOCS/pipeline/step-{N}/issues.md if any.
+  "
+)
 ```
 
-Log each commit to `DOCS/pipeline/step-{N}/fix-log.md`:
-```
-{timestamp} {commit-sha}: {what was implemented}
-```
+**After each depth level completes:**
+1. Merge all worktree branches into the feature branch:
+   ```bash
+   # Worktree agents return their branch names
+   git merge <worktree-branch-1> --no-edit
+   git merge <worktree-branch-2> --no-edit
+   ```
+2. Run integration tests to catch cross-task conflicts
+3. If conflicts or failures → spawn opus agent to resolve
 
-### Phase 3C — Integration check
+**Escalation rule** (same as before):
+- If any haiku agent fails tests after 1 retry → spawn opus to diagnose and fix
+- If opus can't fix it → STOP and surface to user
+- Escalation is expected ~20% of the time — it's a cost optimization, not a failure
 
-After all agents complete:
+### Phase 3C — Integration verification
+
+After all tasks merge into the feature branch:
+
 ```bash
-# Backend
+# Full backend test suite
 pytest services/api/tests/ -v --tb=short
 
-# Frontend
-cd apps/web && pnpm build && pnpm test
+# Frontend build + tests
+cd apps/web && pnpm tsc --noEmit && pnpm build && pnpm test
+
+# Prompt evals (if any prompt files changed)
+cd services/api && python -m evals.runner
 
 # Docker sanity
 docker compose up -d && ./scripts/sanity-check.sh
 ```
 
-If anything fails → escalate to opus to diagnose and fix. Log the fix.
+If anything fails → spawn opus agent to diagnose and fix:
+```
+Agent(
+  model: "opus",
+  prompt: "
+    Integration tests failed after merging parallel implementation tasks.
+    
+    Error output: {paste the failure}
+    
+    Read DOCS/pipeline/step-{N}/design.md for what was intended.
+    Read the test file and the implementation.
+    Fix the issue. Run tests again. Commit the fix.
+  "
+)
+```
+
+Log every fix to `DOCS/pipeline/step-{N}/fix-log.md`:
+```
+{timestamp} {commit-sha}: {what was fixed}
+```
+
+Update `checkpoint.md`:
+```
+Phase 3 complete: all tasks implemented, integration tests passing
+```
 
 ---
 
@@ -336,72 +450,213 @@ Phase 4 complete: PR #{N} opened
 
 ---
 
-## Phase 5 — Code Review (ECC Skill: review)
+## Phase 5 — Push and pre-verification
 
-Load the `review` skill. Feed it the PR diff:
+Push the implementation branch and do a quick pre-check before full verification:
 ```bash
-git diff main...HEAD
+git push -u origin feat/step-{N}-{slug}
+
+# Quick sanity — these should already pass from Phase 3C
+pytest services/api/tests/ -v --tb=line
+cd apps/web && pnpm tsc --noEmit
 ```
 
-Address all CRITICAL and HIGH findings before proceeding.
-MEDIUM findings: fix if < 30 min, otherwise log to issues.md as tech debt.
-LOW findings: log to issues.md, fix in a future step.
-
-For each fix:
-1. Make the change
-2. Commit: `git commit -m "fix(step-{N}): [what was fixed]"`
-3. Push: `git push origin feat/step-{N}-{slug}`
-4. Log to fix-log.md
+If anything fails here that passed in Phase 3C → investigate what changed between merge and push.
 
 ---
 
-## Phase 6 — Verification
+## Phase 6 — Verification (full test pyramid)
 
-### Phase 6A — Run regression tests
+Run ALL test layers in sequence. Each layer must pass before moving to the next.
+If any layer fails → fix, commit, push, re-run that layer. Log every fix.
 
-Read `DOCS/REGRESSION.md`. Run all smoke tests defined there. Log any failures.
-
-### Phase 6B — Run new tests
+### Phase 6A — Unit tests
 
 ```bash
-# All backend tests
-pytest services/api/tests/ -v
+# Backend unit tests
+cd services/api && pytest tests/ -v --tb=short
 
-# Frontend tests
+# Frontend unit tests
 cd apps/web && pnpm test
-
-# E2E (if applicable)
-cd apps/web && pnpm playwright test
 ```
 
-If any test fails → fix, commit, push, re-run.
+**Coverage check** — invoke the `test-coverage` gstack skill:
+```
+/test-coverage
+```
+Target: 80% line coverage minimum. If below threshold, write missing tests before proceeding.
 
-### Phase 6C — Write testing.md
+### Phase 6B — Integration tests
 
-Write `DOCS/pipeline/step-{N}/testing.md` — a local verification guide for a human reviewer:
+```bash
+# Backend integration tests (hit real DB — docker compose must be running)
+cd services/api && pytest tests/ -v -k "integration" --tb=short
+
+# Frontend build (catches import/type errors across modules)
+cd apps/web && pnpm tsc --noEmit && pnpm build
+```
+
+### Phase 6C — Regression tests
+
+Read `DOCS/REGRESSION.md`. Run every smoke test defined there — these catch
+cross-step breakage from prior features.
+
+```bash
+# Example regression checks (project-specific — read REGRESSION.md for actual list)
+# API endpoints from prior steps still respond correctly
+# Frontend pages from prior steps still load
+# Workers from prior steps still enqueue and complete
+```
+
+Log results in `DOCS/pipeline/step-{N}/testing.md` under "Regression results".
+
+### Phase 6D — Smoke tests
+
+```bash
+# Start all services fresh
+docker compose down && docker compose up -d
+sleep 5
+
+# Run health checks
+./scripts/sanity-check.sh
+```
+
+If any service fails to start or health check fails → fix before continuing.
+
+### Phase 6E — E2E browser tests (gstack skill)
+
+Invoke the `e2e` gstack skill to generate and run Playwright browser tests:
+
+```
+/e2e
+```
+
+This skill:
+1. Reads the user journeys from `DOCS/pipeline/step-{N}/journeys.md`
+2. Generates Playwright test specs for each journey
+3. Runs them against the local dev server
+4. Captures screenshots on failure
+5. Reports pass/fail with artifacts
+
+If the `/e2e` skill is not available, fall back to running existing Playwright tests:
+```bash
+cd apps/web && npx playwright install --with-deps chromium
+cd apps/web && npx playwright test --reporter=list
+```
+
+If no E2E tests exist yet, generate them from journeys.md:
+
+```
+Agent(
+  subagent_type: "e2e-runner",
+  prompt: "
+    Read DOCS/pipeline/step-{N}/journeys.md for the user flows.
+    Read apps/web/e2e/ for existing test patterns.
+    
+    Generate Playwright E2E tests for every new user journey in this step.
+    
+    Each test should:
+    - Navigate to the page
+    - Perform the user action
+    - Assert the expected outcome is visible
+    - Use page.waitForSelector() or expect(locator).toBeVisible() — no sleep()
+    
+    Save to apps/web/e2e/step-{N}-*.spec.ts
+    Run: npx playwright test apps/web/e2e/step-{N}-*.spec.ts
+    Fix any failures.
+  "
+)
+```
+
+### Phase 6F — Security scan (gstack skill)
+
+Invoke the `security-review` gstack skill on the diff:
+
+```
+/security-review
+```
+
+This scans for:
+- Hardcoded secrets
+- SQL injection vectors
+- XSS in frontend
+- Missing auth guards on endpoints
+- OWASP Top 10 issues
+
+If CRITICAL findings → fix immediately. HIGH → fix if < 30 min. MEDIUM/LOW → log to issues.md.
+
+### Phase 6G — Code review (gstack skill)
+
+Invoke the `review` gstack skill (this replaces the old Phase 5):
+
+```
+/review
+```
+
+This runs a multi-agent code review: code quality, patterns, security, and type safety.
+Address CRITICAL and HIGH findings. Log MEDIUM/LOW to issues.md.
+
+### Phase 6H — Prompt evals (if prompts changed)
+
+If any files in `services/api/prompts/` were modified:
+```bash
+cd services/api && python -m evals.runner --ci
+```
+Must pass 100%. If any eval fails → fix the prompt, re-run.
+
+### Phase 6I — Write testing.md
+
+Write `DOCS/pipeline/step-{N}/testing.md` — comprehensive verification record:
 
 ```markdown
 # Step N — Testing Guide
 
-## Setup
-[prerequisites — running services, env vars]
+## Test pyramid results
 
-## Backend tests
-[copy-pasteable commands with specific expected output]
+| Layer | Tests | Passed | Failed | Coverage |
+|---|---|---|---|---|
+| Unit (backend) | 24 | 24 | 0 | 87% |
+| Unit (frontend) | 12 | 12 | 0 | 82% |
+| Integration | 8 | 8 | 0 | — |
+| Regression | 15 | 15 | 0 | — |
+| E2E (browser) | 5 | 5 | 0 | — |
+| Prompt evals | 4 | 4 | 0 | — |
+| Security scan | — | clean | — | — |
 
-## Frontend tests
-[copy-pasteable commands]
+## How to run locally
 
-## Manual smoke tests
-[step-by-step UI flows to verify visually]
+### Setup
+[prerequisites — docker compose up, env vars]
+
+### Backend tests
+pytest services/api/tests/ -v
+Expected: {N} passed in Xs
+
+### Frontend tests
+cd apps/web && pnpm test
+Expected: {N} passed
+
+### E2E tests
+cd apps/web && npx playwright test
+Expected: {N} passed
+
+### Smoke tests
+./scripts/sanity-check.sh
+Expected: all checks passed
 
 ## What is NOT tested
-[honest list of gaps — what regression could slip through]
+[honest list of gaps — what could still break]
 ```
 
 Update `checkpoint.md`:
 ```
-Phase 6 complete: all tests passing, testing.md written
+Phase 6 complete: all test layers passing, testing.md written
+  Unit: {N} passed, {coverage}%
+  Integration: {N} passed
+  Regression: {N} passed
+  E2E: {N} passed
+  Security: clean
+  Prompt evals: {N}/{N} passed
 ```
 
 ---
@@ -410,12 +665,24 @@ Phase 6 complete: all tests passing, testing.md written
 
 **CRITICAL: Write all docs on the feature branch BEFORE merging. Docs must land on main through the PR, not pushed directly.**
 
-### Phase 7A — Wait for /approve
+### Phase 7A — Merge gate
 
+**Gate behavior depends on mode:**
+
+**`full-auto` mode** (set by `/orchestrate --full-auto`):
+- Skip the `/approve` wait entirely
+- All tests passed in Phase 6 → that IS the approval
+- Proceed directly to merge
+- ONLY use this mode when the plan was explicitly approved by the user beforehand
+
+**`autonomous` / `guided` mode** (default):
 1. Run: `gh pr view <PR_number> --json comments --jq '[.comments[].body] | join("\n")'`
 2. Look for a comment containing exactly `/approve` posted by a human
 3. If not found → stop and tell the user to post `/approve` on the PR
 4. NEVER post `/approve` yourself
+
+**`full-control` mode**:
+- Same as autonomous, plus print a detailed summary of everything that was built and tested
 
 ### Phase 7B — Finalize issues.md
 

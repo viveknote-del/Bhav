@@ -20,11 +20,29 @@ across steps, manages human gates, and tracks progress.
 
 | Mode | Stops at | Best for |
 |---|---|---|
-| `guided` (default) | After Phase 1 (requirements) + Phase 2 (design) + Phase 7A (/approve) | First 3 steps of any project — catches bad requirements early |
+| `guided` (default) | After Phase 1 + Phase 2 + Phase 7A (/approve) | First 3 steps — catches bad requirements early |
 | `autonomous` | Only Phase 7A (/approve) | Established projects with clear patterns |
+| `full-auto` | Nowhere — only stops on test failure or conflict | Plan already reviewed, trust AI fully |
 | `full-control` | After every phase | Debugging the pipeline or learning how it works |
 
+**`full-auto` mode details:**
+- The plan MUST be reviewed and approved before entering full-auto
+- Phases 0-6 run without any human gates
+- Phase 7: skips `/approve` wait — if all tests pass, that IS the approval
+- Auto-merges the PR, updates docs, chains to the next step
+- Runs parallel agents with worktree isolation for independent tasks
+- ONLY stops when: a test suite fails, a merge conflict can't be auto-resolved,
+  or opus escalation fails to fix a build error
+- This is the "run overnight" mode
+
+**Safety nets in full-auto:**
+- Full test pyramid (unit + integration + regression + E2E + security + evals) must pass
+- Code review skill still runs and blocks on CRITICAL findings
+- Merge conflicts between parallel steps trigger a stop
+- Budget limit (`--budget N`) still respected
+
 Switch from `guided` to `autonomous` once you've shipped 3+ steps and trust the patterns.
+Switch to `full-auto` once the test suite is comprehensive and you want hands-off execution.
 
 ---
 
@@ -98,6 +116,61 @@ To run them simultaneously:
 Both will create separate PRs. Merge them in sequence (Step 2 first, then Step 3).
 After both are merged, Step 4 becomes READY.
 ```
+
+### Step 1b — Full-auto pre-flight (full-auto mode only)
+
+If `--mode full-auto`:
+
+1. **Verify the plan was reviewed:**
+   ```
+   The plan has {N} READY steps. Full-auto mode will:
+   - Run all steps autonomously (no human gates)
+   - Auto-merge PRs after all tests pass
+   - Only stop on failure
+
+   This requires that you've already reviewed plans/forward.md.
+
+   Reply 'go' to start full-auto execution.
+   Reply 'review' to see the plan first.
+   ```
+
+   This is the ONLY human interaction in full-auto mode.
+
+2. **Check test infrastructure exists:**
+   - `services/api/tests/` has at least 1 test file
+   - `apps/web/e2e/` has at least 1 spec file
+   - `docker compose ps` shows healthy services
+   - `DOCS/REGRESSION.md` has at least 3 smoke tests
+
+   If any check fails:
+   ```
+   ⚠ Full-auto requires comprehensive tests. Missing:
+     - No E2E tests in apps/web/e2e/
+     - REGRESSION.md has 0 smoke tests
+
+   Fix these first, or use --mode autonomous (stops for /approve).
+   ```
+
+3. **Start execution loop:**
+   ```
+   FOR EACH step in dependency order:
+     IF step has parallel peers at same depth:
+       Spawn parallel Agent(isolation="worktree") per step
+       Each agent runs: /pipeline "Step N" --gate-mode full-auto
+       Wait for all agents to complete
+       Merge PRs sequentially (first-ready-first-merged)
+       Rebase remaining branches if needed
+     ELSE:
+       Run /pipeline "Step N" --gate-mode full-auto directly
+     
+     After merge:
+       Update KANBAN.md
+       Log to fix-log.md
+       Verify main is clean: git checkout main && git pull && make sanity
+       Continue to next depth level
+   ```
+
+---
 
 ### Step 2 — Execute the first READY step
 

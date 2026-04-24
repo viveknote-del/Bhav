@@ -82,6 +82,7 @@ cd ~/projects/your-project
 | `/orchestrate` (guided) | Review requirements + design + PR | First 3 steps |
 | `/orchestrate --mode autonomous` | /approve PRs only | Established patterns |
 | `/autopilot` | /approve PRs only (auto-picks work) | Bug burndown, sprints |
+| `/orchestrate --full-auto` | Approve plan once, then nothing | Overnight builds, full test coverage |
 
 See [DOCS/ORCHESTRATION.md](./DOCS/ORCHESTRATION.md) for the full guide.
 

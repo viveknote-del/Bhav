@@ -290,6 +290,7 @@ When the user's request matches a command, invoke it as your FIRST action.
 | implement a step, build a feature | `/pipeline "Step N — Name"` | Full SDLC cycle for one step |
 | "build the whole plan", "run everything" | `/orchestrate` | Multi-step orchestrator with human gates |
 | "just go", "work through the backlog" | `/autopilot` | Continuous loop — picks and executes items |
+| "build everything", "run overnight" | `/orchestrate --full-auto` | Zero-touch after plan approval — tests replace human review |
 | found a bug | `/bug` | Triage and log to DOCS/BUGS.md |
 | new feature idea | `/feature` | Interactive intake, writes into forward plan |
 | PR open but session died | `/resume-pr` | Resume stalled pipeline from open PR |
@@ -300,6 +301,7 @@ When the user's request matches a command, invoke it as your FIRST action.
 - "what's next" → `/next`
 - "build step N" / single step → `/pipeline`
 - "build everything" / "run the plan" → `/orchestrate`
+- "build overnight" / "zero touch" → `/orchestrate --full-auto`
 - "just go" / "work through it" → `/autopilot`
 - "audit the design / UI" → `/design-review`
 - "ship this" / "create a PR" → `/ship`
