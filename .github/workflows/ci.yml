@@ -78,3 +78,26 @@ jobs:
           SUPABASE_ANON_KEY: test-anon-key
           SUPABASE_SERVICE_ROLE_KEY: test-service-key
           JWT_SECRET: test-secret
+
+  prompt-evals:
+    name: Prompt evals
+    runs-on: ubuntu-latest
+    # Only run when prompts/ or providers/ changed
+    if: >
+      contains(github.event.pull_request.changed_files, 'services/api/prompts') ||
+      contains(github.event.pull_request.changed_files, 'services/api/providers')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r services/api/requirements.txt
+      - run: cd services/api && python -m evals.runner --ci
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_ANON_KEY: test-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: test-service-key
+          JWT_SECRET: test-secret
+          REDIS_URL: redis://localhost:6379
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb

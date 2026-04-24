@@ -51,3 +51,19 @@ migrate:
 	@echo "Apply migrations via Supabase CLI:"
 	@echo "  supabase db push    (for hosted Supabase)"
 	@echo "  supabase db reset   (for local Supabase)"
+
+evals:
+	cd services/api && python -m evals.runner
+
+evals-ci:
+	cd services/api && python -m evals.runner --ci
+
+pre-commit-install:
+	pip install pre-commit && pre-commit install
+
+pre-commit-run:
+	pre-commit run --all-files
+
+cost-report:
+	@echo "Query your logs for 'llm.usage' events to see token spend."
+	@echo "Or run: grep 'llm.usage' logs/api.log | jq ."

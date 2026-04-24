@@ -243,6 +243,16 @@ OPENAI_API_KEY=
 ---
 
 
+
+## Key Conventions (new projects must not skip these)
+
+- **API routes: always `/v1/` prefix** — `router = APIRouter(prefix="/v1/items")`. Painful to add later.
+- **Prompts: never inline strings** — all prompts live in `prompts/registry.py`. Bump version on change.
+- **Evals: run before merging prompt changes** — `make evals`. CI blocks if score drops.
+- **Workers: always use `@job` decorator** — never write a bare arq task. Silent failures are worse than loud ones.
+- **Cost budget: check before AI endpoints** — `await check_budget(user_id, tier, redis)`.
+- **Startup: validate env vars** — `main.py` raises on missing config. Don't add optional behavior for required vars.
+
 ## Token Hygiene
 
 **This file loads on every session.** Every 100 lines = ~2,500 tokens burned before you type anything.
@@ -302,4 +312,4 @@ When the user's request matches a command, invoke it as your FIRST action.
 - **Decisions:** [DOCS/DECISIONS.md](./DOCS/DECISIONS.md)
 - **Code standards:** [DOCS/CODE-STANDARDS.md](./DOCS/CODE-STANDARDS.md) ← read when implementing
 - **Design patterns:** [DOCS/PATTERNS.md](./DOCS/PATTERNS.md) ← read when designing a feature
-- **AI-first guide:** [DOCS/AI-FIRST.md](./DOCS/AI-FIRST.md) ← read when building AI features
+- **AI-first guide:** [DOCS/AI-FIRST.md](./DOCS/AI-FIRST.md) ← model routing, caching, evals, fallback

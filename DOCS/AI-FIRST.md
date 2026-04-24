@@ -183,3 +183,77 @@ logger.info(
 ```
 
 This gives you a log-based cost dashboard without any third-party tooling.
+
+---
+
+## Evals workflow
+
+Evals are the test suite for your AI quality. Run them the same way you run `pytest`.
+
+```
+Prompt changes without evals = merging untested code.
+```
+
+### Day-to-day workflow
+
+```bash
+# 1. Change a prompt in prompts/registry.py
+# 2. Bump the version string
+# 3. Run evals locally
+make evals
+
+# 4. If a case fails, either:
+#    a. Fix the prompt (it regressed)
+#    b. Update the eval case (the criteria were wrong)
+# 5. Commit — CI re-runs evals automatically on the PR
+```
+
+### When to add eval cases
+
+- Every new prompt gets at least 2 eval cases before merging
+- When a user reports bad output → add an eval case that catches that exact failure, then fix the prompt
+- When you upgrade model versions → run evals first, check for regressions
+
+### LLM-as-judge (advanced)
+
+For outputs that are hard to check with substring matching (creative writing, summaries), use a cheaper model to judge the output:
+
+```python
+EvalCase(
+    description="Caption is engaging and under 150 chars",
+    input="Summer music festival, indie bands, outdoor venue",
+    # Use a judge prompt instead of must_contain
+    judge_prompt="Is this caption engaging and under 150 characters? Reply YES or NO.",
+    judge_must_contain=["YES"],
+)
+```
+Add a `judge_prompt` field to `EvalCase` and a `_run_judge()` helper in `evals/runner.py` when you need this.
+
+---
+
+## Multi-provider fallback
+
+The current fallback chain in `providers/llm.py`:
+
+```
+Anthropic (primary)
+  → RateLimitError or 5xx?
+OpenAI (fallback)
+  → RateLimitError?
+fallback_fn (caller-supplied rule-based function)
+  → no fallback_fn?
+503 ServiceUnavailable
+```
+
+**When to supply a `fallback_fn`:** Any user-facing feature where a broken response is better than a 503. Example: if copy generation fails, return a template string with the event name filled in. The user gets something, not an error screen.
+
+```python
+def _template_copy(prompt: str) -> str:
+    return "Join us for an unforgettable event. Limited spots available."
+
+result = await llm.complete(
+    prompt,
+    system=SYSTEM_PROMPT,
+    fallback_fn=_template_copy,
+)
+```

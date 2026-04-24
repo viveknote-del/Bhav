@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:base"],
+  "schedule": ["before 9am on Monday"],
+  "prCreationSchedule": ["before 9am on Monday"],
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "matchDepTypes": ["devDependencies"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "matchPackageNames": ["anthropic", "openai"],
+      "reviewers": ["{{GITHUB_REPO}}"],
+      "automerge": false,
+      "commitMessagePrefix": "ai(deps):"
+    },
+    {
+      "matchManagers": ["pip_requirements"],
+      "groupName": "python dependencies"
+    },
+    {
+      "matchManagers": ["npm"],
+      "groupName": "npm dependencies"
+    }
+  ],
+  "ignoreDeps": []
+}

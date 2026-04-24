@@ -296,3 +296,76 @@ class ItemCreate(BaseModel):
 ```
 
 Never `**request.json()` directly into a DB call.
+
+---
+
+## Eval pattern (AI-specific)
+
+Every prompt has eval cases in `prompts/registry.py`. Run them before any prompt change merges.
+
+```python
+# Good eval case structure
+EvalCase(
+    description="Stays on-topic for the product domain",
+    input="Tell me a joke",
+    must_not_contain=["here's a joke", "haha"],  # should redirect, not comply
+    must_contain=["help", "assist"],
+    min_length=10,
+),
+```
+
+Three types of criteria — use all three where they apply:
+- `must_contain` — phrases that prove the output is correct
+- `must_not_contain` — phrases that prove a known failure mode isn't present
+- `min_length` / `max_length` — guardrails for output that's too short (hallucination) or too long (rambling)
+
+Run locally: `make evals` — run in CI: `make evals-ci`
+
+## Cost budget pattern (AI-specific)
+
+Check budget before triggering AI generation. Record usage after.
+
+```python
+# In the router (before the expensive operation)
+from middleware.cost_budget import check_budget, record_usage
+
+@router.post("/generate")
+async def generate(user: dict = Depends(require_user), redis: Redis = Depends(get_redis)):
+    await check_budget(user["sub"], tier=user.get("tier", "free"), redis=redis)
+
+    result = await llm.complete(prompt, system=SYSTEM_PROMPT)
+
+    # Record after success (approximate tokens — use actual usage from llm._log_usage in prod)
+    await record_usage(user["sub"], tokens_used=len(result) // 4, redis=redis)
+    return {"result": result}
+```
+
+## Prompt versioning pattern
+
+Bump the version string in `prompts/registry.py` whenever the system prompt changes.
+Version is logged with every LLM call — makes it trivial to correlate output quality with
+prompt changes in your logs.
+
+```python
+# When changing a prompt:
+# 1. Edit the system text
+# 2. Bump version: "1.0" → "1.1"
+# 3. Update/add eval_cases to cover the change
+# 4. Run: make evals
+# 5. Commit — CI will re-run evals on the PR
+```
+
+## Startup validation pattern
+
+Fail fast on missing config rather than getting mysterious 500s at runtime:
+
+```python
+# In main.py lifespan
+def _validate_config() -> None:
+    required = [("SUPABASE_URL", settings.supabase_url), ...]
+    missing = [name for name, val in required if not val]
+    if missing:
+        raise RuntimeError(f"Missing env vars: {', '.join(missing)}")
+```
+
+The error surfaces immediately on deploy, not 10 requests later when a user hits a broken path.
