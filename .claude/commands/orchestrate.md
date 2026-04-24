@@ -300,6 +300,175 @@ Options:
 
 Never silently continue past a failure. Always surface and ask.
 
+
+---
+
+## Safety mechanisms (all modes)
+
+### 1. Live status file
+
+The orchestrator writes `DOCS/pipeline/orchestrator-status.md` after every phase transition.
+The user can run `/status` at any time to see the dashboard. The file contains:
+
+```markdown
+# Orchestrator Status
+Mode: full-auto
+Started: 2026-04-25T09:00:00Z
+Plan hash: a1b2c3 (from plans/forward.md at start)
+
+## Current
+Step 3 — Dashboard UI | Phase 3B | Task 2/5 | running since 09:45
+
+## Completed
+| Step | PR | Duration | Tests |
+|---|---|---|---|
+| Step 0 | #10 | 12m | 8/8 passed |
+| Step 1 | #12 | 28m | 24/24 passed |
+| Step 2 | #15 | 45m | 47/47 passed |
+
+## Remaining
+| Step | Status | Depends on |
+|---|---|---|
+| Step 4 | blocked | Step 2 ✓, Step 3 ○ |
+| Step 5 | blocked | Step 4 |
+
+## Alerts
+None
+```
+
+**Write this file at every phase transition.** It's the user's window into the running orchestration.
+
+### 2. Halt file checking
+
+Between every phase and between every step, check:
+
+```bash
+if [ -f .halt ]; then
+  echo "Halt signal detected."
+  # Read reason
+  cat .halt
+  # Write checkpoint
+  # Report and stop
+fi
+```
+
+The user creates `.halt` via the `/halt` command. The orchestrator finishes its current phase,
+writes checkpoint, and stops cleanly. No work is lost.
+
+### 3. Plan change detection
+
+At orchestration start, hash the plan file:
+```bash
+PLAN_HASH=$(md5 -q plans/forward.md)
+```
+
+Between every step (after merge, before starting next step), re-hash:
+```bash
+NEW_HASH=$(md5 -q plans/forward.md)
+if [ "$NEW_HASH" != "$PLAN_HASH" ]; then
+  echo "⚠ Plan changed since orchestration started."
+  echo "Re-reading plan and rebuilding dependency graph..."
+  # Re-parse plan, re-check dependencies
+  # Some steps may have been added, removed, or reordered
+  # Present the new plan to the user:
+  echo "Plan changed. New execution order:"
+  # ... show diff
+  echo "Reply 'continue' to accept, 'halt' to stop and review."
+fi
+```
+
+This catches:
+- New steps added via `/feature`
+- Steps removed or reordered
+- Dependency changes
+- Any manual edits to `plans/forward.md`
+
+### 4. Priority interrupt (P0/P1 bug check)
+
+Between every step, check `DOCS/BUGS.md` for new P0/P1 bugs:
+
+```bash
+# Check for P0 bugs filed since orchestration started
+grep -c "Priority.*P0.*Status.*OPEN" DOCS/BUGS.md
+```
+
+If a P0 is found:
+```
+⚠ P0 bug detected: BUG-7 — payment endpoint returns 500
+
+P0 bugs take priority over all planned work.
+Pausing orchestration to fix BUG-7 first.
+
+Creating hotfix branch: hotfix/bug-7-payment-500
+```
+
+The orchestrator:
+1. Pauses the current plan
+2. Fixes the P0 bug (hotfix branch → PR → merge)
+3. Resumes the plan from where it paused
+
+For P1 bugs: log a warning but continue. The P1 will be picked up in the next step
+if it targets that step (pipeline Phase 0 reads BUGS.md).
+
+### 5. Post-merge verification on main
+
+After EVERY step merges, run the full test suite on main:
+
+```bash
+git checkout main && git pull origin main
+
+# Full verification on main
+pytest services/api/tests/ -v --tb=short
+cd apps/web && pnpm tsc --noEmit && pnpm build && pnpm test
+./scripts/sanity-check.sh
+```
+
+If main is broken after the merge:
+
+```
+⚠ Main is broken after merging Step 2 (PR #15).
+
+Failing: test_campaign_create — expected 201, got 500
+
+Options:
+1. Attempt auto-fix: spawn opus agent to diagnose and fix on main
+2. Revert the merge: git revert <merge-sha> && git push
+3. Halt: stop orchestration, surface to user
+
+Attempting auto-fix first...
+```
+
+Auto-fix flow:
+1. Create a `fix/post-merge-step-{N}` branch from main
+2. Spawn opus agent to diagnose and fix
+3. Run tests again
+4. If green → merge the fix, continue orchestration
+5. If still broken → revert the original merge, halt, surface to user
+
+**NEVER continue to the next step if main is broken.** Everything depends on a green main.
+
+### 6. Rollback capability
+
+If a step needs to be rolled back:
+
+```bash
+# Find the merge commit
+MERGE_SHA=$(git log --oneline -1 --merges | cut -d' ' -f1)
+
+# Revert it
+git revert $MERGE_SHA --no-edit
+git push origin main
+
+# Update KANBAN.md — mark step as REVERTED
+# Update DEFERRED.md — note what needs re-implementation
+```
+
+Rollback triggers:
+- Post-merge tests fail AND auto-fix fails
+- User runs `/halt --rollback <step>`
+- A subsequent step reveals the prior step's implementation was fundamentally wrong
+
+
 ### Step 5 — Final report
 
 When orchestration ends (all steps done, budget hit, or user stopped):

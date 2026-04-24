@@ -362,3 +362,135 @@ Workspace 1, Step 2:
 This gives you **two levels of parallelism:**
 1. **Across steps**: independent steps in different Conductor workspaces
 2. **Within steps**: independent tasks in worktree-isolated sub-agents
+
+---
+
+## Monitoring during full-auto
+
+### /status command
+
+Run `/status` at any time to see a live dashboard:
+
+```
+=== Orchestration Status ===
+Mode: full-auto | Started: 09:00 | Runtime: 2h 15m
+
+  ✓ Step 0 — Scaffold          merged  PR #10   12 min
+  ✓ Step 1 — Auth              merged  PR #12   28 min
+  ◉ Step 3 — Dashboard UI      Phase 3  running (18 min)
+  ○ Step 4 — Workers           blocked
+
+Tests after last merge: 47 passed | Alerts: none
+```
+
+The dashboard reads from `DOCS/pipeline/orchestrator-status.md` which the
+orchestrator updates after every phase transition.
+
+### What the orchestrator checks between steps
+
+```
+After each step merges:
+  1. Run full test suite on main        ← if broken: auto-fix or revert
+  2. Check .halt file                   ← if present: stop cleanly
+  3. Re-hash plans/forward.md           ← if changed: re-plan
+  4. Check DOCS/BUGS.md for P0 bugs     ← if found: fix before continuing
+  5. Update orchestrator-status.md
+  6. Continue to next step
+```
+
+---
+
+## Handling plan changes mid-execution
+
+### Scenario 1: Scope change ("add a new feature to Step 4")
+
+Edit `plans/forward.md` directly. The orchestrator detects the plan hash changed
+between steps and re-reads the plan:
+
+```
+⚠ Plan changed since orchestration started.
+Step 4 scope expanded: added "webhook endpoint for external integrations"
+
+Reply 'continue' to accept new plan, 'halt' to review.
+```
+
+### Scenario 2: New P0 bug mid-execution
+
+File the bug with `/bug "description" --priority p0` in a separate terminal/workspace.
+The orchestrator checks BUGS.md between steps:
+
+```
+⚠ P0 bug detected: BUG-7 — payment endpoint returns 500
+
+Pausing plan. Creating hotfix branch...
+[fixes bug, merges hotfix]
+Resuming plan from Step 3.
+```
+
+### Scenario 3: "Step 3's design is wrong" (discovered during Step 4)
+
+Run `/halt --reason "Step 3 design is wrong, need to re-implement"`:
+
+```
+⏸ Halt signal created.
+Orchestrator will stop after completing current phase.
+
+To fix:
+  1. Revert Step 3: git revert <merge-sha>
+  2. Edit plans/forward.md — update Step 3 scope
+  3. Resume: rm .halt && /orchestrate
+```
+
+### Scenario 4: "I want to skip Step 5 for now"
+
+Edit `plans/forward.md` — add `**SKIP**` to Step 5's description. The orchestrator
+will skip it when it gets there.
+
+Or edit `DOCS/KANBAN.md` — mark Step 5 as `DEFERRED`.
+
+### Scenario 5: "I want to reprioritize — do Step 5 before Step 4"
+
+Edit the `Depends on:` lines in `plans/forward.md`. The orchestrator re-reads
+the plan between steps and will follow the new dependency order.
+
+---
+
+## Graceful stop: /halt
+
+```
+/halt                    ← stop after current phase
+/halt --reason "..."     ← stop with a reason logged
+/halt --cancel           ← remove halt, let it continue
+```
+
+Creates a `.halt` file. The orchestrator checks for this between every phase
+and between every step. When found:
+1. Finishes current phase (never stops mid-implementation)
+2. Writes checkpoint.md with exact state
+3. Reports what's done and what's remaining
+4. Stops
+
+No work is lost. Resume with:
+```
+rm .halt && /orchestrate         ← continue the plan
+/resume-pr <PR#>                 ← resume a specific step's PR
+```
+
+---
+
+## Rollback
+
+If a merged step breaks main:
+
+```
+Orchestrator auto-fix attempt:
+  1. Create fix/post-merge-step-N branch
+  2. Spawn opus agent to diagnose
+  3. If fixed → merge fix, continue
+  4. If not → revert the merge, halt
+
+Manual rollback:
+  git revert <merge-sha> --no-edit && git push
+```
+
+The orchestrator never continues past a broken main.

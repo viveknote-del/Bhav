@@ -295,6 +295,8 @@ When the user's request matches a command, invoke it as your FIRST action.
 | new feature idea | `/feature` | Interactive intake, writes into forward plan |
 | PR open but session died | `/resume-pr` | Resume stalled pipeline from open PR |
 | docs are bloated, trim context | `/trim` | Archive resolved bugs + completed KANBAN tasks |
+| "what's happening", "check progress" | `/status` | Live orchestration dashboard |
+| "stop", "pause orchestration" | `/halt` | Gracefully stop after current phase |
 
 ### Key routing rules
 
@@ -307,6 +309,8 @@ When the user's request matches a command, invoke it as your FIRST action.
 - "ship this" / "create a PR" → `/ship`
 - "something is broken" → `/investigate`
 - "docs are too long" / "trim" → `/trim`
+- "what's the status" / "check progress" → `/status`
+- "stop" / "pause" / "halt" → `/halt`
 
 ---
 

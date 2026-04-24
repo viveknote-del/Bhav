@@ -38,3 +38,4 @@ htmlcov/
 .playwright-mcp/
 tsconfig.tsbuildinfo
 apps/web/tsconfig.tsbuildinfo
+.halt
