@@ -287,18 +287,24 @@ When the user's request matches a command, invoke it as your FIRST action.
 | Trigger | Command | When to use |
 |---|---|---|
 | "what's next", "what should I work on" | `/next` | Prioritized menu of bugs, deferrals, steps |
-| implement a step, build a feature | `/pipeline "Step N — Name"` | Full SDLC cycle |
+| implement a step, build a feature | `/pipeline "Step N — Name"` | Full SDLC cycle for one step |
+| "build the whole plan", "run everything" | `/orchestrate` | Multi-step orchestrator with human gates |
+| "just go", "work through the backlog" | `/autopilot` | Continuous loop — picks and executes items |
 | found a bug | `/bug` | Triage and log to DOCS/BUGS.md |
 | new feature idea | `/feature` | Interactive intake, writes into forward plan |
 | PR open but session died | `/resume-pr` | Resume stalled pipeline from open PR |
+| docs are bloated, trim context | `/trim` | Archive resolved bugs + completed KANBAN tasks |
 
 ### Key routing rules
 
 - "what's next" → `/next`
-- Any step implementation → `/pipeline`
+- "build step N" / single step → `/pipeline`
+- "build everything" / "run the plan" → `/orchestrate`
+- "just go" / "work through it" → `/autopilot`
 - "audit the design / UI" → `/design-review`
 - "ship this" / "create a PR" → `/ship`
 - "something is broken" → `/investigate`
+- "docs are too long" / "trim" → `/trim`
 
 ---
 
@@ -312,4 +318,5 @@ When the user's request matches a command, invoke it as your FIRST action.
 - **Decisions:** [DOCS/DECISIONS.md](./DOCS/DECISIONS.md)
 - **Code standards:** [DOCS/CODE-STANDARDS.md](./DOCS/CODE-STANDARDS.md) ← read when implementing
 - **Design patterns:** [DOCS/PATTERNS.md](./DOCS/PATTERNS.md) ← read when designing a feature
-- **AI-first guide:** [DOCS/AI-FIRST.md](./DOCS/AI-FIRST.md) ← model routing, caching, evals, fallback
+- **AI-first guide:** [DOCS/AI-FIRST.md](./DOCS/AI-FIRST.md)
+- **Orchestration:** [DOCS/ORCHESTRATION.md](./DOCS/ORCHESTRATION.md) ← multi-step automation guide ← model routing, caching, evals, fallback

@@ -55,14 +55,35 @@ cd ~/projects/your-project
 
 ## Workflow
 
+### Day-to-day commands
 ```
-/next                          → prioritized work menu (bugs + steps + deferrals)
+/next                          → see prioritized bugs, deferrals, and next steps
 /pipeline "Step N — Name"      → full SDLC cycle for one step
 /bug "description"             → triage and log to DOCS/BUGS.md
 /feature "idea"                → intake a feature into plans/forward.md
 /resume-pr <PR#>               → pick up a stalled pipeline
 /trim                          → archive completed items, check CLAUDE.md size
 ```
+
+### Orchestration commands
+```
+/orchestrate                   → run all READY steps with design review gates
+/orchestrate --mode autonomous → only stop at PR /approve (trust the AI)
+/orchestrate --parallel        → show which steps can run in separate workspaces
+/autopilot                     → continuous loop — picks and executes top priority items
+/autopilot --bugs-only         → only fix bugs, skip features
+```
+
+### Automation levels
+
+| Level | Human involvement | Use when |
+|---|---|---|
+| `/pipeline` (manual) | Trigger each step | Learning the system |
+| `/orchestrate` (guided) | Review requirements + design + PR | First 3 steps |
+| `/orchestrate --mode autonomous` | /approve PRs only | Established patterns |
+| `/autopilot` | /approve PRs only (auto-picks work) | Bug burndown, sprints |
+
+See [DOCS/ORCHESTRATION.md](./DOCS/ORCHESTRATION.md) for the full guide.
 
 ## Key design decisions
 

@@ -78,6 +78,32 @@ FOR EACH implementation task in Phase 3:
 - CI check fails on the PR
 - A haiku agent produces code that another haiku agent cannot fix in one pass
 
+
+## Gate modes (set by /orchestrate or passed as argument)
+
+When invoked by `/orchestrate`, the pipeline receives a gate mode. When run
+standalone, the default is `guided`.
+
+| Mode | Gates (where the pipeline stops for human input) |
+|---|---|
+| `guided` (default) | After Phase 1, after Phase 2, after Phase 6 (wait for /approve) |
+| `autonomous` | Only after Phase 6 (wait for /approve) |
+| `full-control` | After every phase |
+
+### How gates work
+
+At a gate, the pipeline:
+1. Writes checkpoint.md with the current phase status
+2. Prints a summary of what was produced (requirements, design, or PR)
+3. Asks the user: `'ok'` / `'change X'` / `'skip gate'`
+4. If `'ok'` → continue to next phase
+5. If `'change X'` → apply the change, re-run the phase, re-gate
+6. If `'skip gate'` → switch to autonomous mode for the rest of this step
+
+When running inside `/autopilot`, gates that would block are handled by
+the autopilot's polling loop — the pipeline surfaces the gate, autopilot
+waits for user response.
+
 ---
 
 ## Phase 0 — Load Context (no agents, no skills)
@@ -142,6 +168,26 @@ Phase 1 complete: requirements.md written
 Open questions: [list any — must be resolved before Phase 2]
 ```
 
+
+### Phase 1 gate (guided + full-control modes)
+
+If gate mode is `guided` or `full-control`:
+
+Print a summary of the requirements to the user:
+```
+Requirements for Step {N} ready.
+
+Key acceptance criteria:
+  [top 3-5 criteria from requirements.md]
+
+Full doc: DOCS/pipeline/step-{N}/requirements.md
+
+Reply 'ok' to proceed to design, 'change X' to adjust, or 'skip gate' for autonomous.
+```
+
+Wait for user response. If `autonomous` mode: skip this gate.
+
+
 ---
 
 ## Phase 2 — System Design (ECC Skill: blueprint or api-design)
@@ -167,6 +213,31 @@ Update `checkpoint.md`:
 ```
 Phase 2 complete: design.md written
 ```
+
+
+### Phase 2 gate (guided + full-control modes)
+
+If gate mode is `guided` or `full-control`:
+
+Print a summary of the design:
+```
+Design for Step {N} ready.
+
+Architecture changes:
+  [list new files and endpoints]
+
+Key decisions:
+  [1-3 design decisions from design.md]
+
+Full doc: DOCS/pipeline/step-{N}/design.md
+
+Reply 'ok' to start implementation, 'change X' to adjust, or 'skip gate' for autonomous.
+
+⚠ This is the most valuable gate — wrong design wastes hours of implementation.
+```
+
+Wait for user response. If `autonomous` mode: skip this gate.
+
 
 ---
 
