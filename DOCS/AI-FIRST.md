@@ -257,3 +257,75 @@ result = await llm.complete(
     fallback_fn=_template_copy,
 )
 ```
+
+---
+
+## Recommended tools
+
+### Caveman (global skill — already installed)
+
+Cuts output tokens by ~61% by eliminating filler narration. No greetings, no summaries,
+no "I'd be happy to help". Pure results.
+
+**Location:** `~/.claude/skills/caveman/SKILL.md` (global — applies to all projects)
+
+**What it cuts:**
+- "I'd be happy to help you with that!"
+- "Let me search for the files..."
+- "I've updated the code. Let me know if you need anything else!"
+
+**What it keeps:**
+- Code (full snippets, never summarized)
+- Error messages (verbatim)
+- File paths, numbers, identifiers (exact)
+- Explanations when the result is surprising
+
+Pairs with codeburn — use codeburn to measure the token savings over time.
+
+### Codeburn (global CLI)
+
+Token cost observability dashboard. Shows spend by task, model, and project.
+
+```bash
+# Run anytime to see your token dashboard
+codeburn
+
+# See cost breakdown by project
+codeburn --project marketing-agency
+```
+
+**Install:** `npm install -g codeburn` (already installed)
+**Reads:** `~/.claude/projects/` session transcripts (read-only, no API keys needed)
+
+Use this to:
+- Track cost per pipeline step
+- Compare haiku vs opus spend
+- Find waste patterns (repeated reads, unnecessary tool calls)
+- Verify caveman is actually saving tokens
+
+### Design Extract (project skill + CLI)
+
+Extract the complete design language from any website URL.
+
+```bash
+# Extract design tokens from a competitor
+npx designlang https://competitor.com
+
+# With screenshots for visual reference
+npx designlang https://competitor.com --screenshots
+
+# Custom output directory
+npx designlang https://competitor.com --out ./design-tokens
+```
+
+**Generates:** Tailwind config, CSS variables, W3C design tokens, shadcn/ui theme,
+React theme object, Figma variables, WCAG score, brand voice summary.
+
+**Integration with /kickoff:**
+During Phase 2 (Architecture Design), if you say "I want it to look like [URL]",
+the AI runs `designlang` and merges the output into your project's Tailwind config
+and CSS variables.
+
+**Integration with /pipeline:**
+During Phase 3 frontend tasks, agents can reference `./design-tokens/` for
+consistent styling without manually inspecting the reference site.

@@ -57,6 +57,22 @@ Wait for user answers before proceeding.
 Based on the answers, design the system architecture. Use the `blueprint` gstack skill
 if available, otherwise design manually.
 
+
+#### 2A-pre — Design reference extraction (optional)
+
+If the user says 'I want it to look like [URL]' or 'use [competitor] as a reference':
+
+```bash
+npx designlang <url> --out ./design-tokens --screenshots
+```
+
+Read the output files:
+- \`./design-tokens/*-tailwind.config.js\` -> merge into \`apps/web/tailwind.config.ts\`
+- \`./design-tokens/*-variables.css\` -> merge into \`apps/web/src/app/globals.css\`
+- \`./design-tokens/*-design-language.md\` -> reference during frontend tasks
+
+If no reference URL: skip this step.
+
 #### 2A — Tech stack decisions
 
 Present the recommended stack as a table:

@@ -91,6 +91,18 @@ cd ~/projects/your-project
 
 See [DOCS/ORCHESTRATION.md](./DOCS/ORCHESTRATION.md) for the full guide.
 
+
+## Recommended tools (global installs)
+
+| Tool | Install | What it does |
+|---|---|---|
+| **Caveman** | `npx skills add Shawnchee/caveman-skill` | Cuts output tokens ~61% by removing filler narration |
+| **Codeburn** | `npm install -g codeburn` | Token cost dashboard — spend by task, model, project |
+| **Design Extract** | `npm install -g designlang` | Extract design language from any URL → Tailwind config, tokens |
+
+Caveman installs as a global skill (`~/.claude/skills/caveman/`). Codeburn and designlang are CLI tools.
+Design-extract also ships as a project skill (`.claude/skills/design-extract/SKILL.md`) for in-session use.
+
 ## Key design decisions
 
 - **Model routing** — Haiku for routine implementation (~1/20th cost), Opus for design/requirements, Sonnet for everything else. Opus auto-escalates on test failure.
