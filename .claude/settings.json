@@ -1,0 +1,113 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const d=require('fs').readFileSync('/dev/stdin','utf8');const i=JSON.parse(d);const cmd=(i.tool_input&&i.tool_input.command)||'';if(/gh pr merge/.test(cmd)){const m=cmd.match(/gh pr merge\\s+(\\d+)/);const pr=m&&m[1];if(pr){const {execSync}=require('child_process');try{const repo=execSync('gh repo view --json nameWithOwner -q .nameWithOwner',{encoding:'utf8'}).trim();const raw=execSync('gh api repos/'+repo+'/issues/'+pr+'/comments --jq .[].body',{encoding:'utf8'});const approved=/^\\/approve\\s*$/m.test(raw);if(!approved){console.error('[Hook] BLOCKED: PR #'+pr+' has no /approve comment. Post a comment with exactly \"/approve\" on the PR to allow merging.');process.exit(2)}}catch(e){console.error('[Hook] BLOCKED: Could not verify /approve comment: '+e.message);process.exit(2)}}}if(/git push(\\s+(--[a-z-]+\\s+)*)(origin\\s+)?main(\\s|$)/.test(cmd)){console.error('[Hook] BLOCKED: Direct push to main is not allowed. Open a PR instead.');process.exit(2)}if(/gh pr create/.test(cmd)){const {execSync}=require('child_process');const checks=[];try{execSync('ls apps/web/src/middleware.ts',{stdio:'pipe'});const exp=execSync('grep -c \"export async function middleware\" apps/web/src/middleware.ts',{encoding:'utf8',stdio:['pipe','pipe','pipe']}).trim();if(exp==='0')checks.push('middleware.ts exists but does not export \"middleware\" function');}catch(e){}try{const uiChanged=execSync('git diff main...HEAD --name-only 2>/dev/null | grep -c \"^apps/web/src/\"',{encoding:'utf8',stdio:['pipe','pipe','pipe']}).trim();if(parseInt(uiChanged)>0){try{execSync('ls apps/web/e2e/*.spec.ts',{stdio:'pipe'});}catch(e2){checks.push('UI files changed but no E2E tests found in apps/web/e2e/ — add Playwright tests before PR');}}}catch(e){}if(checks.length>0){console.error('[Hook] BLOCKED: Pre-PR checklist failed:\\n'+checks.map(c=>'  - '+c).join('\\n'));process.exit(2)}}process.stdout.write(d);\""
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Edit",
+      "Write",
+      "Read",
+
+      "Bash(git checkout*)",
+      "Bash(git pull*)",
+      "Bash(git push*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git branch*)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git merge*)",
+      "Bash(git stash*)",
+
+      "Bash(gh pr create*)",
+      "Bash(gh pr view*)",
+      "Bash(gh pr comment*)",
+      "Bash(gh pr merge*)",
+      "Bash(gh pr list*)",
+      "Bash(gh pr checks*)",
+      "Bash(gh run view*)",
+      "Bash(gh api*)",
+      "Bash(gh repo*)",
+      "Bash(gh issue*)",
+
+      "Bash(pnpm install*)",
+      "Bash(pnpm build*)",
+      "Bash(pnpm dev*)",
+      "Bash(pnpm test*)",
+      "Bash(pnpm lint*)",
+      "Bash(pnpm tsc*)",
+      "Bash(pnpm create*)",
+      "Bash(pnpm add*)",
+      "Bash(pnpm run*)",
+      "Bash(pnpm exec*)",
+      "Bash(pnpm playwright*)",
+      "Bash(npx playwright*)",
+
+      "Bash(python -m pytest*)",
+      "Bash(python3 -m pytest*)",
+      "Bash(pytest*)",
+      "Bash(python -m coverage*)",
+      "Bash(python3 -m coverage*)",
+      "Bash(uvicorn*)",
+      "Bash(pip install*)",
+      "Bash(pip3 install*)",
+      "Bash(uv pip install*)",
+      "Bash(uv sync*)",
+      "Bash(arq*)",
+
+      "Bash(docker compose*)",
+      "Bash(docker build*)",
+      "Bash(docker run*)",
+      "Bash(docker ps*)",
+      "Bash(docker exec*)",
+      "Bash(docker logs*)",
+
+      "Bash(supabase*)",
+
+      "Bash(mkdir -p*)",
+      "Bash(ls*)",
+      "Bash(cat*)",
+      "Bash(head*)",
+      "Bash(tail*)",
+      "Bash(grep*)",
+      "Bash(find*)",
+      "Bash(cp*)",
+      "Bash(mv*)",
+      "Bash(wc*)",
+      "Bash(echo*)",
+      "Bash(touch*)",
+
+      "Bash(psql*)",
+      "Bash(redis-cli*)",
+
+      "Bash(make*)",
+      "Bash(lsof*)",
+      "Bash(kill*)",
+      "Bash(sleep*)",
+      "Bash(node*)",
+      "Bash(npx*)"
+    ],
+    "deny": [
+      "Bash(rm -rf*)",
+      "Bash(git push --force*)",
+      "Bash(git reset --hard*)",
+      "Bash(git rebase*)",
+      "Bash(curl*)",
+      "Bash(wget*)",
+      "Bash(chmod 777*)",
+      "Bash(sudo*)"
+    ]
+  }
+}

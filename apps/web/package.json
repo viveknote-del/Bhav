@@ -1,0 +1,40 @@
+{
+  "name": "@{{PROJECT_NAME}}/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "jest --passWithNoTests",
+    "test:watch": "jest --watch",
+    "playwright": "playwright test"
+  },
+  "dependencies": {
+    "next": "14.2.29",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@supabase/supabase-js": "^2.46.1",
+    "@supabase/ssr": "^0.5.1",
+    "axios": "^1.7.7",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "typescript": "^5",
+    "tailwindcss": "3.4.19",
+    "postcss": "^8",
+    "autoprefixer": "^10",
+    "eslint": "8.57.1",
+    "eslint-config-next": "14.2.29",
+    "@playwright/test": "^1.49.0",
+    "jest": "^29.7.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "jest-environment-jsdom": "^29.7.0"
+  }
+}

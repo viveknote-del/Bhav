@@ -1,0 +1,11 @@
+{
+  "name": "{{PROJECT_NAME}}",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @{{PROJECT_NAME}}/web dev",
+    "build": "pnpm --filter @{{PROJECT_NAME}}/web build",
+    "test": "pnpm --filter @{{PROJECT_NAME}}/web test",
+    "lint": "pnpm --filter @{{PROJECT_NAME}}/web lint"
+  }
+}
