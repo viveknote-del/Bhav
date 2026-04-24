@@ -286,6 +286,7 @@ When the user's request matches a command, invoke it as your FIRST action.
 
 | Trigger | Command | When to use |
 |---|---|---|
+| "starting a new project", "plan the system" | `/kickoff` | Initial system design — architecture, schema, API, step plan |
 | "what's next", "what should I work on" | `/next` | Prioritized menu of bugs, deferrals, steps |
 | implement a step, build a feature | `/pipeline "Step N — Name"` | Full SDLC cycle for one step |
 | "build the whole plan", "run everything" | `/orchestrate` | Multi-step orchestrator with human gates |
@@ -300,6 +301,7 @@ When the user's request matches a command, invoke it as your FIRST action.
 
 ### Key routing rules
 
+- "plan the system" / "design the architecture" → `/kickoff`
 - "what's next" → `/next`
 - "build step N" / single step → `/pipeline`
 - "build everything" / "run the plan" → `/orchestrate`

@@ -55,6 +55,11 @@ cd ~/projects/your-project
 
 ## Workflow
 
+### Project inception
+```
+/kickoff "product description"   → guided system design: architecture, schema, API, step plan
+```
+
 ### Day-to-day commands
 ```
 /next                          → see prioritized bugs, deferrals, and next steps
