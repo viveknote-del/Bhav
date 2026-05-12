@@ -17,10 +17,10 @@ from services.breakout.types import BreakoutSignal
 
 CONSOLIDATION_WINDOW = 20
 MIN_HISTORY = 50
-PRICE_BUFFER = 0.003                # 0.3% above prior top
+PRICE_BUFFER = 0.005                # 0.5% above prior top (was 0.3%, consistency)
 MAX_TIGHTNESS = 5.0                 # range / ATR(14); lower = tighter
 GOOD_TIGHTNESS = 2.5                # tightness <= this → pattern_quality 1.0
-VOLUME_FLOOR_RATIO = 1.3            # break volume vs consolidation avg
+VOLUME_FLOOR_RATIO = 1.5            # 1.5× consolidation avg (was 1.3, consistency)
 
 
 def _tightness(bars_window: pd.DataFrame, atr_14: float) -> float:

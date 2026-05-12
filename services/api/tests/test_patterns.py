@@ -37,13 +37,26 @@ def test_flag_detects_pole_then_break():
     flag = (99.0 + rng.uniform(-2.0, 1.0, 8)).tolist()
     today = [103.0]
     closes = flat + pole + flag + today
-    vols = [1_000_000] * (len(closes) - 1) + [2_000_000]
+    vols = [1_000_000] * (len(closes) - 1) + [2_000_000]  # 2× → passes 1.5 floor
 
     sig = patterns.detect_flag("X.NS", to_df(closes, vols))
     assert sig is not None
     assert sig.breakout_type == "PATTERN"
     assert sig.pattern_subtype == "FLAG"
     assert sig.pattern_quality > 0.0
+    assert sig.volume_ratio >= 1.5
+
+
+def test_flag_rejects_low_volume_break():
+    """A textbook flag pattern must come on confirming volume."""
+    rng = np.random.default_rng(seed=3)
+    flat = [80.0] * 30
+    pole = list(np.linspace(80.0, 100.0, 10))
+    flag = (99.0 + rng.uniform(-2.0, 1.0, 8)).tolist()
+    today = [103.0]
+    closes = flat + pole + flag + today
+    vols = [1_000_000] * (len(closes) - 1) + [1_100_000]   # 1.1× — under floor
+    assert patterns.detect_flag("X.NS", to_df(closes, vols)) is None
 
 
 # ──────────────────── CUP & HANDLE ──────────────────────
@@ -134,6 +147,45 @@ def test_triangle_rejects_flat_lows():
     closes = [100.0] * 35
     vols = [1_000_000] * 34 + [3_000_000]
     assert patterns.detect_triangle("X.NS", to_df(closes, vols)) is None
+
+
+def test_triangle_rejects_low_volume_break():
+    """Triangle break without confirming volume gets rejected."""
+    highs = [100.0] * 40
+    lows = list(np.linspace(92.0, 99.0, 40))
+    closes = [(h + l) / 2 for h, l in zip(highs, lows)]
+    closes.append(102.5)
+    highs.append(closes[-1] * 1.005)
+    lows.append(closes[-1] * 0.995)
+    volumes = [1_000_000] * 40 + [1_100_000]               # 1.1× — under floor
+
+    idx = pd.bdate_range(start="2025-01-01", periods=len(closes))
+    bars = pd.DataFrame({
+        "open": closes, "high": highs, "low": lows, "close": closes, "volume": volumes,
+    }, index=idx)
+    assert patterns.detect_triangle("X.NS", bars) is None
+
+
+def test_triangle_rejects_three_touches():
+    """3 touches at resistance is too sparse — real ascending triangles
+    have 4+. Two non-touch bars + 3 touch bars at the very end, surrounded
+    by lower-priced bars."""
+    # 40 bars: 35 with highs at 95 (below resistance band) + 3 spikes to 100 + 2 lows
+    highs = [95.0] * 35 + [100.0, 100.0, 100.0, 96.0, 96.0]
+    lows = list(np.linspace(85.0, 92.0, 40))
+    closes = [(h + l) / 2 for h, l in zip(highs, lows)]
+    closes.append(102.5)                                    # today: break
+    highs.append(closes[-1] * 1.005)
+    lows.append(closes[-1] * 0.995)
+    volumes = [1_000_000] * 40 + [3_000_000]
+
+    idx = pd.bdate_range(start="2025-01-01", periods=len(closes))
+    bars = pd.DataFrame({
+        "open": closes, "high": highs, "low": lows, "close": closes, "volume": volumes,
+    }, index=idx)
+    sig = patterns.detect_triangle("X.NS", bars)
+    # Only 3 touches at resistance — below new minimum of 4
+    assert sig is None
 
 
 # ──────────────────── DISPATCH ──────────────────────

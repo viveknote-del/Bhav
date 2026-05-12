@@ -18,14 +18,16 @@ from services.breakout.types import BreakoutSignal, PatternSubtype
 
 
 # ──────────────────── FLAG ──────────────────────
-# Pole: 5-15 day strong move up (>= 15%). Flag: 5-15 day tight sideways/down
-# drift after the pole. Break: today closes above the flag's high.
+# Pole: 5-15 day strong move up (>= 18%). Flag: 5-15 day tight sideways/down
+# drift after the pole. Break: today closes above the flag's high on volume.
 
-POLE_MIN_GAIN = 0.15
+POLE_MIN_GAIN = 0.18                  # was 0.15 — 15% is too easy on volatile names
 POLE_LEN_RANGE = (5, 15)
 FLAG_LEN_RANGE = (5, 15)
-FLAG_MAX_RETRACE = 0.50            # flag must give back < 50% of the pole
-FLAG_MAX_RANGE_RATIO = 0.45        # flag range <= 45% of pole range
+FLAG_MAX_RETRACE = 0.50               # flag must give back < 50% of the pole
+FLAG_MAX_RANGE_RATIO = 0.40           # was 0.45 — tighter flag
+FLAG_BREAK_BUFFER = 0.005             # NEW: break flag high by ≥ 0.5%
+FLAG_VOLUME_FLOOR_RATIO = 1.5         # NEW: today's vol ≥ 1.5× 20d avg
 
 
 def detect_flag(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
@@ -34,7 +36,14 @@ def detect_flag(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
 
     bars = bars.sort_index()
     today = bars.iloc[-1]
-    close = bars["close"].values
+
+    # Volume gate first — fastest reject.
+    avg_vol_20 = float(bars["volume"].iloc[-21:-1].mean())
+    if avg_vol_20 <= 0:
+        return None
+    volume_ratio = float(today["volume"]) / avg_vol_20
+    if volume_ratio < FLAG_VOLUME_FLOOR_RATIO:
+        return None
 
     best: tuple[BreakoutSignal, float] | None = None
 
@@ -68,15 +77,12 @@ def detect_flag(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
             if flag_range / pole_range > FLAG_MAX_RANGE_RATIO:
                 continue
 
-            # Today breaks the flag's high
-            if today["close"] <= flag_top:
+            # Today breaks the flag's high with conviction
+            if today["close"] <= flag_top * (1 + FLAG_BREAK_BUFFER):
                 continue
 
             tightness = flag_range / pole_range
             quality = max(0.0, 1.0 - tightness / FLAG_MAX_RANGE_RATIO)
-
-            avg_vol_20 = float(bars["volume"].iloc[-21:-1].mean())
-            volume_ratio = float(today["volume"]) / max(avg_vol_20, 1.0)
 
             sig = BreakoutSignal(
                 symbol=symbol,
@@ -225,12 +231,15 @@ def detect_cup_handle(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
 
 
 # ──────────────────── ASCENDING TRIANGLE ──────────────────────
-# Flat resistance (>= 3 touches within 2% of each other) + rising support
-# (linear regression slope on lows > 0). Break above resistance.
+# Flat resistance (>= 4 touches within 1.5% of each other) + rising support
+# (linear regression slope on lows > 0). Break above resistance on volume.
 
 TRIANGLE_WINDOW = 30
-RESISTANCE_BAND = 0.02             # 2%
-MIN_RESISTANCE_TOUCHES = 3
+RESISTANCE_BAND = 0.015                # was 0.02 — 1.5%
+MIN_RESISTANCE_TOUCHES = 4             # was 3 — 3 highs near a level is noise
+TRIANGLE_BREAK_BUFFER = 0.005          # was 0.003 (the bare 1.003)
+TRIANGLE_VOLUME_FLOOR_RATIO = 1.5      # NEW
+TRIANGLE_MIN_NORMALISED_SLOPE = 0.001  # was 0.0005 — at least 0.1%/day low rise
 
 
 def detect_triangle(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
@@ -241,7 +250,15 @@ def detect_triangle(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
     today = bars.iloc[-1]
     window = bars.iloc[-(TRIANGLE_WINDOW + 1):-1]
 
-    # Find a horizontal-ish resistance: the local max, count bars within 2% of it
+    # Volume gate first.
+    avg_vol_20 = float(bars["volume"].iloc[-21:-1].mean())
+    if avg_vol_20 <= 0:
+        return None
+    volume_ratio = float(today["volume"]) / avg_vol_20
+    if volume_ratio < TRIANGLE_VOLUME_FLOOR_RATIO:
+        return None
+
+    # Flat-ish resistance: count bars within RESISTANCE_BAND of the local max
     res = float(window["high"].max())
     touches = int((window["high"] >= res * (1 - RESISTANCE_BAND)).sum())
     if touches < MIN_RESISTANCE_TOUCHES:
@@ -250,19 +267,17 @@ def detect_triangle(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
     # Lows trending up: linear regression slope > 0 and reasonable strength
     lows = window["low"].values.astype(float)
     x = np.arange(len(lows), dtype=float)
-    slope, intercept = np.polyfit(x, lows, 1)
+    slope, _ = np.polyfit(x, lows, 1)
     avg_low = float(lows.mean())
     if slope <= 0:
         return None
     normalised_slope = slope / max(avg_low, 1e-9)
-    if normalised_slope < 0.0005:                # at least 0.05% / day rise
+    if normalised_slope < TRIANGLE_MIN_NORMALISED_SLOPE:
         return None
 
-    if today["close"] <= res * 1.003:
+    # Break above resistance with conviction
+    if today["close"] <= res * (1 + TRIANGLE_BREAK_BUFFER):
         return None
-
-    avg_vol_20 = float(bars["volume"].iloc[-21:-1].mean())
-    volume_ratio = float(today["volume"]) / max(avg_vol_20, 1.0)
 
     quality = min(1.0, (touches - MIN_RESISTANCE_TOUCHES + 1) / 5.0) * min(
         1.0, normalised_slope / 0.005
