@@ -4,13 +4,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from routers import health
+from db import attach_pool, close_pool, open_pool
+from routers import charts, health, instruments
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _validate_config()
-    yield
+    pool = await open_pool()
+    attach_pool(app, pool)
+    try:
+        yield
+    finally:
+        await close_pool(pool)
 
 
 def _validate_config() -> None:
@@ -45,6 +51,8 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health.router)
+    app.include_router(instruments.router)
+    app.include_router(charts.router)
 
     return app
 

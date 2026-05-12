@@ -1,4 +1,4 @@
-.PHONY: help dev up down logs api-test web-test e2e migrate lint typecheck
+.PHONY: help dev up down logs api-test web-test e2e migrate lint typecheck seed seed-refresh
 
 help:
 	@echo "Available commands:"
@@ -13,6 +13,8 @@ help:
 	@echo "  make typecheck   — Run TypeScript type check"
 	@echo "  make sanity      — Health check all services"
 	@echo "  make migrate     — Apply DB migrations"
+	@echo "  make seed        — Seed NIFTY 50 universe (offline, no provider call)"
+	@echo "  make seed-refresh — Seed + fetch fresh metadata from yfinance"
 
 up:
 	docker compose up -d
@@ -48,9 +50,16 @@ sanity:
 	./scripts/sanity-check.sh
 
 migrate:
-	@echo "Apply migrations via Supabase CLI:"
-	@echo "  supabase db push    (for hosted Supabase)"
-	@echo "  supabase db reset   (for local Supabase)"
+	@for f in packages/database/migrations/*.sql; do \
+		echo "Applying $$f..."; \
+		docker exec -i ai-starter-postgres-1 psql -U postgres -d bhav < $$f || exit 1; \
+	done
+
+seed:
+	cd services/api && python -m scripts.seed
+
+seed-refresh:
+	cd services/api && python -m scripts.seed --refresh
 
 evals:
 	cd services/api && python -m evals.runner

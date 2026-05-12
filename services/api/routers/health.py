@@ -1,29 +1,32 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
+from typing import Annotated
 
 import asyncpg
 import redis.asyncio as redis_lib
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from config import settings
+from db import get_pool
 
 router = APIRouter(prefix="/v1/health", tags=["health"])
 logger = logging.getLogger(__name__)
 
 
 @router.get("")
-async def health_check():
+async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_pool)]):
     """200 if DB and Redis reachable; 503 if either is down."""
     checks: dict[str, dict] = {}
     overall = "ok"
 
     t0 = time.monotonic()
     try:
-        conn = await asyncio.wait_for(asyncpg.connect(settings.database_url), timeout=2.0)
-        await conn.fetchval("SELECT 1")
-        await conn.close()
+        async with pool.acquire() as conn:
+            await asyncio.wait_for(conn.fetchval("SELECT 1"), timeout=2.0)
         checks["database"] = {"status": "ok", "latency_ms": round((time.monotonic() - t0) * 1000)}
     except Exception as e:
         checks["database"] = {"status": "error", "error": str(e)[:200]}
