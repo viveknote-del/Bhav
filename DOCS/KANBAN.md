@@ -1,16 +1,19 @@
-# {{PROJECT_DISPLAY_NAME}} — Kanban
+# Bhav — Kanban
 
-> Last updated: {{DATE}} | **Step 0 READY**
+> Last updated: 2026-05-12 | **Step 0 READY**
 
 ## Backlog
 
-- [ ] **Step 1** — Core scaffold and monorepo setup
-- [ ] **Step 2** — Authentication and user management
-- [ ] **Step 3** — Core API endpoints
-- [ ] **Step 4** — Frontend dashboard
-- [ ] **Step 5** — Background workers (arq)
+- [ ] **Step 0** — Scaffold & Setup *(depends: nothing)* — **READY**
+- [ ] **Step 1** — Universe & Data Pipeline *(depends: Step 0)*
+- [ ] **Step 2** — Breakout Engine: 52w High + Volume Spike *(depends: Step 1)*
+- [ ] **Step 3** — Breakout Engine: Consolidation & Patterns *(depends: Step 2)*
+- [ ] **Step 4** — AI Commentary *(depends: Step 3)*
+- [ ] **Step 5** — Dashboard UI *(depends: Step 4)*
+- [ ] **Step 6** — Scheduling & Intraday Mode *(depends: Step 5)*
+- [ ] **Step 7** — Alerts, Backtests & Polish *(depends: Step 6)*
 
-*Add steps as you define them via `/feature` or `plans/forward.md`.*
+See [plans/forward.md](../plans/forward.md) for full step details.
 
 ## In Progress
 
