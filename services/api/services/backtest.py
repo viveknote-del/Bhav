@@ -20,6 +20,7 @@ from typing import Iterable
 import asyncpg
 import pandas as pd
 
+from services.breakout import _swing_filter
 from services.breakout.detectors import DETECTORS
 from services.breakout.scoring import score as score_signal
 from services.breakout.types import BreakoutSignal
@@ -118,6 +119,11 @@ async def run_backtest(
             # Need forward_window_days *trading* bars after `ts` to compute the return
             forward_slice = full_bars.loc[ts:].iloc[1:forward_window_days + 1]
             if len(forward_slice) < forward_window_days:
+                continue
+
+            # Swing-trade gate — must mirror production scan_service so the
+            # backtest numbers reflect what users will actually see.
+            if not _swing_filter.passes(as_of):
                 continue
 
             entry_close = float(as_of["close"].iloc[-1])

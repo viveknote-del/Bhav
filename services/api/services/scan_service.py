@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Iterable
 from uuid import UUID
@@ -23,13 +24,16 @@ import pandas as pd
 from models.scan import BreakoutOut, ScanDetailOut, ScanRunListOut, ScanRunOut
 from providers.market_data import MarketDataProvider
 from repositories import bar_repo, breakout_repo, instrument_repo, scan_repo
+from services.breakout import _swing_filter
 from services.breakout.detectors import DETECTORS
 from services.breakout.scoring import score as score_signal
 from services.breakout.types import BreakoutSignal
 
 logger = logging.getLogger(__name__)
 
-FETCH_DAYS = 260                 # enough for 252 trading-day lookback + slack
+FETCH_DAYS = 520                 # ~2 years: enough for 252-day 52w lookback + 200d SMA
+                                 # backtest needs (so an "as-of N days ago" check has
+                                 # the 200d SMA available)
 FETCH_CONCURRENCY = 5
 
 
@@ -133,16 +137,36 @@ async def _scan_symbols(
         )
 
     scored: list[tuple[BreakoutSignal, float]] = []
+    swing_rejected: dict[str, int] = {}     # reason → count, for telemetry
+
     for symbol in symbols:
         bars = bars_by_symbol.get(symbol)
         if bars is None or bars.empty:
             continue
+
+        # Swing-trade pre-gate. If the symbol isn't in an uptrend with
+        # strong momentum and trend conviction, skip ALL detectors for it.
+        # This is what makes Bhav a swing-trade screener rather than just
+        # a "any chart that broke a level" screener.
+        gate = _swing_filter.evaluate(bars)
+        if not gate.passed:
+            swing_rejected[gate.reason or "unknown"] = swing_rejected.get(gate.reason or "unknown", 0) + 1
+            continue
+
+        swing_indicators = gate.as_dict()
         for detect in DETECTORS:
             signal = detect(symbol, bars)
             if signal is None:
                 continue
+            # Enrich the signal's indicators with swing context so the UI
+            # can show entry / stop math without re-reading bars.
+            enriched_indicators = {**(signal.indicators or {}), **swing_indicators}
+            signal = replace(signal, indicators=enriched_indicators)
             composite = score_signal(signal, bars)
             scored.append((signal, composite))
+
+    if swing_rejected:
+        logger.info("scan.swing_gate", extra={"rejected": swing_rejected})
     return scored
 
 
