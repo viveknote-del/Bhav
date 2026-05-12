@@ -1,11 +1,10 @@
 # Bhav — Kanban
 
-> Last updated: 2026-05-12 | **Step 5 READY**
+> Last updated: 2026-05-12 | **Step 6 READY**
 
 ## Backlog
 
-- [ ] **Step 5** — Dashboard UI *(depends: Step 4)* — **READY**
-- [ ] **Step 6** — Scheduling & Intraday Mode *(depends: Step 5)*
+- [ ] **Step 6** — Scheduling & Intraday Mode *(depends: Step 5)* — **READY**
 - [ ] **Step 7** — Alerts, Backtests & Polish *(depends: Step 6)*
 
 See [plans/forward.md](../plans/forward.md) for full step details.
@@ -21,3 +20,4 @@ See [plans/forward.md](../plans/forward.md) for full step details.
 - [x] **Step 2** — Breakout Engine: 52w High + Volume Spike — 2026-05-12 — pure detector functions, composite scoring, scan orchestration, arq worker, `POST /v1/scans`, `GET /v1/scans`, `GET /v1/breakouts`
 - [x] **Step 3** — Breakout Engine: Consolidation & Patterns — 2026-05-12 — Donchian-based consolidation, flag/cup-handle/triangle pattern detectors, `pattern_quality` baked into composite score, backtest harness with CLI (`make backtest START=… END=…`)
 - [x] **Step 4** — AI Commentary — 2026-05-12 — `providers/llm.py` (AsyncAnthropic with prompt caching + cost tracking), `providers/news.py` (NewsAPI with `(symbol, date)` cache), versioned `prompts/registry.py`, commentary service, arq `commentary_for_scan` job (auto-enqueued after scan), EOD digest, `POST /v1/breakouts/{id}/commentary`, evals
+- [x] **Step 5** — Dashboard UI — 2026-05-12 — Watchlist API (`GET/POST/DELETE /v1/watchlist`), top nav, home page with today's breakouts + EOD digest + filters, breakout detail page (TradingView lightweight-charts candle chart + indicators + AI commentary + news + watchlist toggle + manual regen), scans history, watchlist CRUD
