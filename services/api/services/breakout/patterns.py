@@ -101,28 +101,42 @@ def detect_flag(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
 
 
 # ──────────────────── CUP AND HANDLE ──────────────────────
-# U-shape over 30-90 days followed by a small handle pullback (<12%) and
-# break above the cup's rim.
+# U-shape over 40-80 days followed by a small handle pullback, then a
+# break above the cup's rim ON VOLUME. The volume confirmation is what
+# distinguishes a real cup-handle from any chart that happens to curve.
 
-CUP_LEN_RANGE = (30, 90)
-CUP_MIN_DEPTH = 0.10               # at least 10% drawdown from rim
+CUP_LENS = (40, 60, 80)            # try these cup lengths only
+CUP_MIN_DEPTH = 0.15               # was 0.10 — too generous
 CUP_MAX_DEPTH = 0.35
-HANDLE_LEN_RANGE = (3, 15)
-HANDLE_MAX_DEPTH = 0.12
+HANDLE_LEN_RANGE = (3, 12)         # was (3, 15)
+HANDLE_MAX_DEPTH = 0.10            # was 0.12 — tighter handle
+RIM_TOLERANCE = 0.04               # was 0.10 — rims within 4%
+BREAK_BUFFER = 0.005               # was 0.002 — break by ≥ 0.5%
+VOLUME_FLOOR_RATIO = 1.5           # NEW: today's vol must be ≥ 1.5× 20d avg
+ROUNDED_BOTTOM_BAND = 0.01         # NEW: lows within 1% of trough
+ROUNDED_BOTTOM_MIN_RUN = 6         # NEW: ≥ 6 CONSECUTIVE bars in that band
 
 
 def detect_cup_handle(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
-    if len(bars) < CUP_LEN_RANGE[1] + HANDLE_LEN_RANGE[1] + 5:
+    if len(bars) < max(CUP_LENS) + HANDLE_LEN_RANGE[1] + 5:
         return None
 
     bars = bars.sort_index()
     today = bars.iloc[-1]
 
-    # Sweep handle and cup lengths; pick the highest-quality match
+    # Volume gate first — fastest reject path. A "cup-handle" without
+    # confirming volume on the break is almost always a false positive.
+    avg_vol_20 = float(bars["volume"].iloc[-21:-1].mean())
+    if avg_vol_20 <= 0:
+        return None
+    volume_ratio = float(today["volume"]) / avg_vol_20
+    if volume_ratio < VOLUME_FLOOR_RATIO:
+        return None
+
     best: tuple[BreakoutSignal, float] | None = None
 
     for handle_len in range(HANDLE_LEN_RANGE[0], HANDLE_LEN_RANGE[1] + 1):
-        for cup_len in (40, 60, 80):                # coarse grid; full sweep is slow
+        for cup_len in CUP_LENS:
             handle_end = -1
             handle_start = -handle_len - 1
             cup_end = handle_start
@@ -142,8 +156,26 @@ def detect_cup_handle(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
             if depth < CUP_MIN_DEPTH or depth > CUP_MAX_DEPTH:
                 continue
 
-            # Rims approximately level (within 10%)
-            if abs(left_rim - right_rim) / cup_rim > 0.10:
+            # Rims approximately level (within 4%)
+            if abs(left_rim - right_rim) / cup_rim > RIM_TOLERANCE:
+                continue
+
+            # Rounded bottom: real cups have a flat-ish region at the low.
+            # A V-shape passes a count-based check (the descent and ascent
+            # both have bars near the trough by accident) — but it FAILS a
+            # *consecutive run* check, because V's only contiguous bars in
+            # a tight band span 3-4 indices. A parabolic U gets 10+ in row.
+            near_trough_band = trough * (1.0 + ROUNDED_BOTTOM_BAND)
+            best_run = 0
+            current_run = 0
+            for low in cup["low"].values:
+                if float(low) <= near_trough_band:
+                    current_run += 1
+                    if current_run > best_run:
+                        best_run = current_run
+                else:
+                    current_run = 0
+            if best_run < ROUNDED_BOTTOM_MIN_RUN:
                 continue
 
             handle_top = float(handle["high"].max())
@@ -152,17 +184,20 @@ def detect_cup_handle(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
             if handle_depth > HANDLE_MAX_DEPTH:
                 continue
 
-            # Break above the cup rim
-            if today["close"] <= cup_rim * 1.002:
+            # Break above the cup rim with conviction
+            if today["close"] <= cup_rim * (1 + BREAK_BUFFER):
                 continue
 
-            # Symmetry: trough roughly in the middle of the cup
-            trough_idx = cup["low"].values.argmin()
-            symmetry = 1.0 - abs(trough_idx - len(cup) / 2) / (len(cup) / 2)
-            quality = max(0.0, min(1.0, symmetry * (1.0 - handle_depth / HANDLE_MAX_DEPTH)))
+            # Symmetry: trough roughly in the middle of the cup (within 25%
+            # of midpoint — stricter than before)
+            trough_idx = int(cup["low"].values.argmin())
+            half = len(cup) / 2.0
+            symmetry_dist = abs(trough_idx - half) / half
+            if symmetry_dist > 0.5:
+                continue
+            symmetry = 1.0 - symmetry_dist
 
-            avg_vol_20 = float(bars["volume"].iloc[-21:-1].mean())
-            volume_ratio = float(today["volume"]) / max(avg_vol_20, 1.0)
+            quality = max(0.0, min(1.0, symmetry * (1.0 - handle_depth / HANDLE_MAX_DEPTH)))
 
             sig = BreakoutSignal(
                 symbol=symbol,
@@ -178,7 +213,9 @@ def detect_cup_handle(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
                     "handle_len": handle_len,
                     "handle_depth_pct": handle_depth,
                     "symmetry": symmetry,
+                    "rounded_bottom_run": best_run,
                     "cup_rim": cup_rim,
+                    "avg_vol_20": avg_vol_20,
                 },
             )
             if best is None or quality > best[1]:
