@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import logging
 
-from arq import cron
-
+from arq.cron import cron as arq_cron    # alias: our local workers/cron.py submodule
+                                         # shadows a bare `cron` import via Python's
+                                         # package-attribute semantics
 from arq_client import redis_settings
 from db import open_pool
 from workers.commentary import commentary_for_breakout, commentary_for_scan
@@ -44,9 +45,10 @@ async def shutdown(ctx: dict) -> None:
 class WorkerSettings:
     functions = [scan_eod, commentary_for_scan, commentary_for_breakout]
     cron_jobs = [
-        cron(eod_scan_cron, hour=10, minute=5, weekday={"mon", "tue", "wed", "thu", "fri"}, unique=True),
+        # weekday set: 0=Mon … 4=Fri (arq's Set[int] form)
+        arq_cron(eod_scan_cron, hour=10, minute=5, weekday={0, 1, 2, 3, 4}, unique=True),
         # Intraday loop fires every 5 min year-round; the job no-ops outside market hours.
-        cron(intraday_scan_cron, minute=set(range(0, 60, 5)), unique=True),
+        arq_cron(intraday_scan_cron, minute=set(range(0, 60, 5)), unique=True),
     ]
     redis_settings = redis_settings()
     on_startup = startup

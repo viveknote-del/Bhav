@@ -148,7 +148,13 @@ async def generate_for_top_n(pool: asyncpg.Pool, scan_run_id: UUID) -> int:
     """Generate commentary for the top N breakouts of a scan. Returns count.
 
     N comes from settings.commentary_top_n (default 20). Bounds spend.
+    Silently no-ops when ANTHROPIC_API_KEY is unset — commentary is
+    opt-in, like Telegram alerts.
     """
+    if not settings.anthropic_api_key:
+        logger.info("commentary.skipped", extra={"reason": "anthropic_key_unset"})
+        return 0
+
     rows = await breakout_repo.top_breakouts_for_scan(
         pool, scan_run_id, settings.commentary_top_n
     )
@@ -166,7 +172,11 @@ async def generate_for_top_n(pool: asyncpg.Pool, scan_run_id: UUID) -> int:
 
 
 async def generate_eod_digest(pool: asyncpg.Pool, scan_run_id: UUID) -> str | None:
-    """Write the once-per-scan top-5 summary onto scan_runs.summary."""
+    """Write the once-per-scan top-5 summary onto scan_runs.summary.
+    Silently no-ops when ANTHROPIC_API_KEY is unset."""
+    if not settings.anthropic_api_key:
+        return None
+
     rows = await breakout_repo.top_breakouts_for_scan(pool, scan_run_id, 5)
     if not rows:
         return None
