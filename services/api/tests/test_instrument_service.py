@@ -22,6 +22,12 @@ async def pool():
 
 @pytest_asyncio.fixture
 async def clean_instruments(pool):
+    """⚠ DESTRUCTIVE: TRUNCATEs the instruments table (and cascades).
+    Run only against a dedicated test DB. Opt in via the env var below.
+    Default pytest invocations skip the tests that use this fixture."""
+    import os
+    if not os.environ.get("BHAV_DESTRUCTIVE_TESTS"):
+        pytest.skip("destructive integration test — set BHAV_DESTRUCTIVE_TESTS=1 to run")
     async with pool.acquire() as conn:
         await conn.execute("TRUNCATE instruments CASCADE")
     yield

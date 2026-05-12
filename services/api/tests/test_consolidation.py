@@ -70,3 +70,23 @@ def test_tighter_consolidation_scores_higher():
     assert sig_tight is not None
     if sig_loose is not None:
         assert sig_tight.pattern_quality >= sig_loose.pattern_quality
+
+
+def test_rejects_close_in_lower_half_of_bar():
+    """A bar that tags resistance and rolls over is a textbook failed
+    breakout — must close in the upper half of its own range to qualify."""
+    rng = np.random.default_rng(seed=42)
+    closes = (100.0 + rng.uniform(-0.5, 0.5, 50)).tolist() + [103.0]
+    vols = [1_000_000] * 50 + [2_500_000]
+
+    bars = make_bars(closes, vols)
+    # Override today's bar: today's high is 105 (well above close), low is 102.9
+    # close 103 in a range [102.9, 105] → position = (103-102.9)/(105-102.9) ≈ 0.05
+    # i.e. close near the bottom of the bar
+    last_idx = bars.index[-1]
+    bars.loc[last_idx, "open"] = 104.5
+    bars.loc[last_idx, "high"] = 105.0
+    bars.loc[last_idx, "low"] = 102.9
+    bars.loc[last_idx, "close"] = 103.0
+
+    assert consolidation.detect("X.NS", bars) is None

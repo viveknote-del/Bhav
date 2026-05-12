@@ -14,6 +14,21 @@ from config import settings
 from providers.market_data import MarketDataProvider, InstrumentInfo, Quote
 from repositories import instrument_repo, scan_repo
 from services import scan_service
+from services.breakout import _swing_filter
+
+
+@pytest.fixture(autouse=True)
+def _bypass_swing_gate(monkeypatch):
+    """Scan-orchestration tests focus on the pipeline (provider → detectors
+    → scoring → persist), not on the swing-trade gate. The gate is unit-
+    tested separately in test_swing_filter.py. Bypassing here lets us
+    keep synthetic 252-bar fixtures simple without engineering trend +
+    RSI + ADX into every one."""
+    monkeypatch.setattr(
+        _swing_filter,
+        "evaluate",
+        lambda bars: _swing_filter.SwingIndicators(0.0, 0.0, 0.0, 60.0, 30.0, True, None),
+    )
 
 
 def _flat_then_break(closes_top: float = 105.0) -> pd.DataFrame:
@@ -66,22 +81,47 @@ async def pool():
     await p.close()
 
 
+TEST_SYMBOLS = ("_TEST_AAA.NS", "_TEST_BBB.NS", "_TEST_CCC.NS")
+
+
 @pytest_asyncio.fixture
 async def clean_db(pool):
-    async with pool.acquire() as conn:
-        await conn.execute("TRUNCATE breakouts, scan_runs, daily_bars, instruments CASCADE")
+    """Opt-in destructive fixture. The scan-orchestration integration
+    tests need a clean DB to assert exact counts. Default pytest runs
+    skip them so a shared dev DB never gets wiped accidentally.
+
+    Even when enabled, this only touches our `_TEST_*.NS` test symbols —
+    production data is preserved by symbol-scoped DELETEs.
+    """
+    import os
+    if not os.environ.get("BHAV_DESTRUCTIVE_TESTS"):
+        pytest.skip("destructive integration test — set BHAV_DESTRUCTIVE_TESTS=1 to run")
+
+    async def _purge():
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM breakouts WHERE symbol = ANY($1::text[])", list(TEST_SYMBOLS)
+            )
+            await conn.execute(
+                "DELETE FROM daily_bars WHERE symbol = ANY($1::text[])", list(TEST_SYMBOLS)
+            )
+            # scan_runs aren't symbol-scoped, but the orphans we'd leave
+            # behind are tiny and don't break anything; leave them.
+            await conn.execute(
+                "DELETE FROM instruments WHERE symbol = ANY($1::text[])", list(TEST_SYMBOLS)
+            )
+    await _purge()
     yield
-    async with pool.acquire() as conn:
-        await conn.execute("TRUNCATE breakouts, scan_runs, daily_bars, instruments CASCADE")
+    await _purge()
 
 
 @pytest_asyncio.fixture
 async def fixture_universe(pool, clean_db):
     """Seed 3 symbols: 2 will break out, 1 won't."""
     for symbol, name in [
-        ("AAA.NS", "Breakout Co A"),
-        ("BBB.NS", "Breakout Co B"),
-        ("CCC.NS", "Quiet Co C"),
+        ("_TEST_AAA.NS", "Breakout Co A"),
+        ("_TEST_BBB.NS", "Breakout Co B"),
+        ("_TEST_CCC.NS", "Quiet Co C"),
     ]:
         await instrument_repo.upsert_instrument(
             pool, symbol=symbol, exchange="NSE", name=name,
@@ -92,9 +132,9 @@ async def fixture_universe(pool, clean_db):
 @pytest.mark.asyncio
 async def test_run_scan_persists_breakouts(pool, fixture_universe):
     provider = FakeProvider({
-        "AAA.NS": _flat_then_break(),
-        "BBB.NS": _flat_then_break(closes_top=108.0),
-        "CCC.NS": _quiet(),
+        "_TEST_AAA.NS": _flat_then_break(),
+        "_TEST_BBB.NS": _flat_then_break(closes_top=108.0),
+        "_TEST_CCC.NS": _quiet(),
     })
     scan_id = await scan_service.create_and_run_scan(pool, provider, scan_type="EOD")
 
@@ -104,9 +144,9 @@ async def test_run_scan_persists_breakouts(pool, fixture_universe):
     assert detail.scan.universe_size == 3
 
     by_symbol = {b.symbol for b in detail.breakouts}
-    assert "AAA.NS" in by_symbol
-    assert "BBB.NS" in by_symbol
-    assert "CCC.NS" not in by_symbol
+    assert "_TEST_AAA.NS" in by_symbol
+    assert "_TEST_BBB.NS" in by_symbol
+    assert "_TEST_CCC.NS" not in by_symbol
 
     for b in detail.breakouts:
         assert 0.0 <= b.composite_score <= 100.0
@@ -117,24 +157,24 @@ async def test_run_scan_persists_breakouts(pool, fixture_universe):
 async def test_scan_handles_provider_failure_for_one_symbol(pool, fixture_universe):
     class FlakyProvider(FakeProvider):
         async def get_bars(self, symbol: str, days: int) -> pd.DataFrame:
-            if symbol == "BBB.NS":
+            if symbol == "_TEST_BBB.NS":
                 raise RuntimeError("simulated rate-limit")
             return await super().get_bars(symbol, days)
 
     provider = FlakyProvider({
-        "AAA.NS": _flat_then_break(),
-        "CCC.NS": _quiet(),
+        "_TEST_AAA.NS": _flat_then_break(),
+        "_TEST_CCC.NS": _quiet(),
     })
     scan_id = await scan_service.create_and_run_scan(pool, provider, scan_type="EOD")
     detail = await scan_service.get_scan_detail(pool, scan_id)
     assert detail.scan.status == "COMPLETED"          # one bad symbol shouldn't kill the scan
     symbols = {b.symbol for b in detail.breakouts}
-    assert symbols == {"AAA.NS"}                       # AAA detected, BBB errored, CCC quiet
+    assert symbols == {"_TEST_AAA.NS"}                       # AAA detected, BBB errored, CCC quiet
 
 
 @pytest.mark.asyncio
 async def test_list_scans_returns_recent_first(pool, fixture_universe):
-    provider = FakeProvider({s: _quiet() for s in ("AAA.NS", "BBB.NS", "CCC.NS")})
+    provider = FakeProvider({s: _quiet() for s in ("_TEST_AAA.NS", "_TEST_BBB.NS", "_TEST_CCC.NS")})
     await scan_service.create_and_run_scan(pool, provider)
     await scan_service.create_and_run_scan(pool, provider)
 

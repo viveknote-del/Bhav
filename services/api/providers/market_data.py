@@ -55,10 +55,22 @@ class MarketDataProvider(ABC):
         Concrete providers should override this with a batch API call when
         the upstream supports it (yfinance does, via `yf.download`). Returns
         a dict symbol → DataFrame; failed symbols are silently omitted.
+
+        Per-symbol exceptions are swallowed so one rate-limit / network
+        blip doesn't poison an entire scan.
         """
+        import logging
+        logger = logging.getLogger(__name__)
         out: dict[str, pd.DataFrame] = {}
         for symbol in symbols:
-            df = await self.get_bars(symbol, days)
+            try:
+                df = await self.get_bars(symbol, days)
+            except Exception as e:                            # noqa: BLE001
+                logger.warning(
+                    "market_data.get_bars_failed",
+                    extra={"symbol": symbol, "error": str(e)[:200]},
+                )
+                continue
             if not df.empty:
                 out[symbol] = df
         return out

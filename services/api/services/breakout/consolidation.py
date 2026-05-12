@@ -21,6 +21,11 @@ PRICE_BUFFER = 0.005                # 0.5% above prior top (was 0.3%, consistenc
 MAX_TIGHTNESS = 5.0                 # range / ATR(14); lower = tighter
 GOOD_TIGHTNESS = 2.5                # tightness <= this → pattern_quality 1.0
 VOLUME_FLOOR_RATIO = 1.5            # 1.5× consolidation avg (was 1.3, consistency)
+GOOD_CLOSE_MIN_PCT = 0.5            # close must be in upper half of today's range —
+                                    # "conviction filter". A bar that tags the
+                                    # level and rolls over is the textbook failed
+                                    # breakout. Backtest showed -1.86% mean fwd
+                                    # before this gate.
 
 
 def _tightness(bars_window: pd.DataFrame, atr_14: float) -> float:
@@ -50,6 +55,16 @@ def detect(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
     if donchian_top <= 0 or today["close"] <= donchian_top * (1 + PRICE_BUFFER):
         return None
 
+    # Conviction filter: where did the bar close within its own range?
+    # < 50% means sellers showed up at the level — "tagged and rolled".
+    bar_range = float(today["high"]) - float(today["low"])
+    if bar_range > 0:
+        close_position = (float(today["close"]) - float(today["low"])) / bar_range
+        if close_position < GOOD_CLOSE_MIN_PCT:
+            return None
+    else:
+        close_position = 1.0                  # zero-range bar — accept by default
+
     consolidation_window = bars.iloc[-(CONSOLIDATION_WINDOW + 1):-1]
     atr_14 = atr(bars.iloc[:-1], window=14)
     tightness = _tightness(consolidation_window, atr_14)
@@ -77,5 +92,6 @@ def detect(symbol: str, bars: pd.DataFrame) -> BreakoutSignal | None:
             "tightness": tightness,
             "atr_14": atr_14,
             "consolidation_avg_volume": avg_vol,
+            "close_position": close_position,
         },
     )

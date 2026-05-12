@@ -52,17 +52,33 @@ class TestFiftyTwoWeekHigh:
         assert fifty_two_week.detect("X.NS", bars) is None
 
     def test_clear_breakout_fires(self):
-        # Sideways at 100, today breaks 105 on heavy volume
-        closes = [100.0] * 252 + [105.0]
+        # Noisy ±1% around 100 for 252 days (gives RSI a realistic range
+        # of gains and losses to chew on), then today breaks to 105
+        # on heavy volume.
+        rng = np.random.default_rng(seed=17)
+        base = (100.0 + rng.uniform(-1.0, 1.0, 252)).tolist()
+        closes = base + [105.0]
         vols = [1_000_000] * 252 + [2_000_000]
         bars = make_bars(closes, vols)
         sig = fifty_two_week.detect("X.NS", bars)
         assert sig is not None
         assert sig.breakout_type == "FIFTY_TWO_WEEK_HIGH"
         assert sig.price == 105.0
-        assert sig.breakout_level == 100.0
         assert sig.volume_ratio == pytest.approx(2.0, rel=1e-3)
-        assert sig.indicators["break_pct"] == pytest.approx(0.05, rel=1e-3)
+        assert sig.indicators["rsi_at_break"] < 75
+
+    def test_returns_none_when_already_overbought(self):
+        # Sustained uptrend pushes RSI into >80 territory by the time of
+        # the 52w-high break — the "buying tops" pattern that mean-reverts.
+        # Generate a long climb so RSI saturates high.
+        closes = [50.0 + i * 0.2 for i in range(252)] + [105.0]
+        vols = [1_000_000] * 252 + [2_000_000]
+        bars = make_bars(closes, vols)
+        # Sanity check: should produce a high RSI
+        from services.breakout._ta import rsi
+        assert rsi(bars, 14) > 75
+        # And the detector should now reject it
+        assert fifty_two_week.detect("X.NS", bars) is None
 
 
 # ──────────────────── volume spike ──────────────────────
