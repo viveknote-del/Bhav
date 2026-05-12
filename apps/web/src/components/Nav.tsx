@@ -9,6 +9,7 @@ const LINKS = [
   { href: '/scans', label: 'Scans' },
   { href: '/instruments', label: 'Instruments' },
   { href: '/watchlist', label: 'Watchlist' },
+  { href: '/backtests', label: 'Backtest' },
 ]
 
 export function Nav() {

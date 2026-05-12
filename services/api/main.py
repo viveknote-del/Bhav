@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from arq_client import attach_arq, close_arq, open_arq
 from config import settings
 from db import attach_pool, close_pool, open_pool
-from routers import breakouts, charts, health, instruments, scans, watchlist
+from routers import backtests, breakouts, charts, health, instruments, scans, watchlist
 
 
 @asynccontextmanager
@@ -59,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(scans.router)
     app.include_router(breakouts.router)
     app.include_router(watchlist.router)
+    app.include_router(backtests.router)
 
     return app
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from services import commentary_service
+from services import alert_service, commentary_service
 from workers.base import job
 
 logger = logging.getLogger(__name__)
@@ -20,10 +20,13 @@ async def commentary_for_scan(ctx: dict, scan_id: str) -> dict:
     scan_uuid = UUID(scan_id)
     commented = await commentary_service.generate_for_top_n(pool, scan_uuid)
     digest = await commentary_service.generate_eod_digest(pool, scan_uuid)
+    # Telegram alerts on high-conviction breakouts (no-op if not configured)
+    alerted = await alert_service.evaluate_and_alert(pool, scan_uuid)
     return {
         "scan_id": scan_id,
         "commented": commented,
         "digest_written": digest is not None,
+        "alerted": alerted,
     }
 
 
