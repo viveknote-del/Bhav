@@ -111,6 +111,15 @@ popd
 echo.
 
 REM --- 8/9  pnpm + frontend deps ---------------------------------------------
+echo [7b/9] Writing apps\web\.env.local (Next can't see the root .env)...
+if not exist "apps\web\.env.local" (
+  echo NEXT_PUBLIC_API_URL=http://localhost:8765> apps\web\.env.local
+  echo   created
+) else (
+  echo   already exists, leaving it alone
+)
+echo.
+
 echo [8/9] Installing frontend dependencies...
 where pnpm >nul 2>&1
 if errorlevel 1 (
