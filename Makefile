@@ -1,4 +1,4 @@
-.PHONY: help dev up down logs api-test web-test e2e migrate lint typecheck seed seed-refresh
+.PHONY: help dev up down logs api-test web-test e2e migrate lint typecheck seed seed-refresh worker scan-now
 
 help:
 	@echo "Available commands:"
@@ -15,6 +15,8 @@ help:
 	@echo "  make migrate     — Apply DB migrations"
 	@echo "  make seed        — Seed NIFTY 50 universe (offline, no provider call)"
 	@echo "  make seed-refresh — Seed + fetch fresh metadata from yfinance"
+	@echo "  make worker      — Run the arq worker (executes scan jobs)"
+	@echo "  make scan-now    — Trigger an EOD scan via the API"
 
 up:
 	docker compose up -d
@@ -60,6 +62,12 @@ seed:
 
 seed-refresh:
 	cd services/api && python -m scripts.seed --refresh
+
+worker:
+	cd services/api && arq workers.WorkerSettings
+
+scan-now:
+	curl -s -X POST http://localhost:8000/v1/scans -H 'Content-Type: application/json' -d '{"scan_type":"EOD"}'
 
 evals:
 	cd services/api && python -m evals.runner
