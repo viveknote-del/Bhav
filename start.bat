@@ -23,6 +23,14 @@ echo Ensuring Postgres + Redis are running...
 docker compose up -d >nul 2>&1
 echo.
 
+REM --- refresh frontend deps if pnpm-lock changed since last install --------
+REM (cheap when up-to-date; saves you from "git pull then frontend fails")
+echo Refreshing frontend dependencies (fast if no changes)...
+pushd apps\web
+call pnpm install --prefer-offline --silent
+popd
+echo.
+
 echo Launching three windows... watch the titlebars.
 echo.
 
