@@ -1,3 +1,13 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+
+allowBuilds:
+  unrs-resolver: true
+
+# pnpm v10+ blocks postinstall scripts by default. Explicitly allow the
+# native-binary downloader unrs-resolver — a transitive dep through
+# eslint-config-next. Without this, `pnpm dev` fails its deps-status
+# check with ERR_PNPM_IGNORED_BUILDS.
+onlyBuiltDependencies:
+  - unrs-resolver
