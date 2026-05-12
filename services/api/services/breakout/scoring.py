@@ -2,10 +2,11 @@
 
 Score components (each in [0, 1] before weighting):
   - price_strength      : how clean the price break is vs the 52-week range
-  - volume_normalized   : how unusual today's volume is on a log scale
-  - trend_alignment     : 1.0 if close > 50d MA > 200d MA, partial otherwise
+  - volume              : how unusual today's volume is on a log scale
+  - trend               : 1.0 if close > 50d MA > 200d MA, partial otherwise
   - atr_clean_break     : break size measured in ATRs
-  - pattern_quality     : 0 in this step; Step 3 fills it from detectors/patterns.py
+  - pattern_quality     : read straight from signal.pattern_quality (set by
+                          consolidation + pattern detectors)
 
 Weights live in WEIGHTS and are intentionally easy to tune from one place.
 """
@@ -15,6 +16,7 @@ import math
 
 import pandas as pd
 
+from services.breakout._ta import atr as _atr
 from services.breakout.types import BreakoutSignal
 
 
@@ -25,20 +27,6 @@ WEIGHTS = {
     "trend":            0.10,
     "atr_clean_break":  0.10,
 }
-
-
-def _atr(bars: pd.DataFrame, window: int = 14) -> float:
-    """Simple Wilder-style ATR over the last `window` bars."""
-    if len(bars) < window + 1:
-        return 0.0
-    high = bars["high"]
-    low = bars["low"]
-    prev_close = bars["close"].shift(1)
-    tr = pd.concat(
-        [(high - low).abs(), (high - prev_close).abs(), (low - prev_close).abs()],
-        axis=1,
-    ).max(axis=1)
-    return float(tr.iloc[-window:].mean())
 
 
 def _price_strength(signal: BreakoutSignal, bars: pd.DataFrame) -> float:
@@ -87,12 +75,12 @@ def _atr_clean_break(signal: BreakoutSignal, bars: pd.DataFrame) -> float:
     return min(1.0, max(0.0, atrs_above / 2.0))
 
 
-def score(signal: BreakoutSignal, bars: pd.DataFrame, pattern_quality: float = 0.0) -> float:
-    """Composite score in [0, 100]."""
+def score(signal: BreakoutSignal, bars: pd.DataFrame) -> float:
+    """Composite score in [0, 100]. Reads pattern_quality off the signal."""
     components = {
         "price_strength":  _price_strength(signal, bars),
         "volume":          _volume_score(signal),
-        "pattern_quality": max(0.0, min(1.0, pattern_quality)),
+        "pattern_quality": max(0.0, min(1.0, signal.pattern_quality)),
         "trend":           _trend_alignment(signal, bars),
         "atr_clean_break": _atr_clean_break(signal, bars),
     }

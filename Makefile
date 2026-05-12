@@ -69,6 +69,13 @@ worker:
 scan-now:
 	curl -s -X POST http://localhost:8000/v1/scans -H 'Content-Type: application/json' -d '{"scan_type":"EOD"}'
 
+backtest:
+	@if [ -z "$(START)" ] || [ -z "$(END)" ]; then \
+		echo "Usage: make backtest START=2025-01-01 END=2025-04-30 [FORWARD=20] [WIN=0.05]"; exit 1; \
+	fi
+	cd services/api && python -m scripts.backtest --start $(START) --end $(END) \
+		$(if $(FORWARD),--forward $(FORWARD)) $(if $(WIN),--win $(WIN))
+
 evals:
 	cd services/api && python -m evals.runner
 

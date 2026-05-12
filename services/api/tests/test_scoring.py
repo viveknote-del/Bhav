@@ -60,7 +60,10 @@ def test_trend_aligned_break_scores_higher_than_below_ma():
 
 def test_pattern_quality_increases_score():
     bars = make_bars([100.0] * 250 + [110.0], [1_000_000] * 250 + [3_000_000])
-    sig = BreakoutSignal("X.NS", "PATTERN", 110.0, None, 3.0, pattern_subtype="FLAG")
-    s_zero = score(sig, bars, pattern_quality=0.0)
-    s_full = score(sig, bars, pattern_quality=1.0)
+    sig_zero = BreakoutSignal("X.NS", "PATTERN", 110.0, None, 3.0,
+                              pattern_subtype="FLAG", pattern_quality=0.0)
+    sig_full = BreakoutSignal("X.NS", "PATTERN", 110.0, None, 3.0,
+                              pattern_subtype="FLAG", pattern_quality=1.0)
+    s_zero = score(sig_zero, bars)
+    s_full = score(sig_full, bars)
     assert s_full - s_zero == pytest.approx(WEIGHTS["pattern_quality"] * 100, abs=0.01)
