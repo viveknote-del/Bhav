@@ -44,19 +44,44 @@ async def run_scan(
     scan_run row to COMPLETED/FAILED. Returns a summary dict the
     worker can store as the job result.
     """
+    import time
+    t0 = time.monotonic()
     try:
         symbols = await _active_symbols(pool)
         logger.info("scan.start", extra={"scan_id": str(scan_id), "n_symbols": len(symbols)})
 
+        fetch_t0 = time.monotonic()
         scored = await _scan_symbols(pool, provider, symbols)
+        fetch_ms = round((time.monotonic() - fetch_t0) * 1000)
+
+        persist_t0 = time.monotonic()
         breakouts_found = await breakout_repo.insert_breakouts(pool, scan_id, scored)
         await scan_repo.complete_scan(pool, scan_id, breakouts_found, datetime.now(timezone.utc))
+        persist_ms = round((time.monotonic() - persist_t0) * 1000)
 
-        logger.info("scan.complete", extra={"scan_id": str(scan_id), "breakouts": breakouts_found})
-        return {"scan_id": str(scan_id), "breakouts_found": breakouts_found}
+        total_ms = round((time.monotonic() - t0) * 1000)
+        logger.info(
+            "scan.complete",
+            extra={
+                "scan_id": str(scan_id),
+                "breakouts": breakouts_found,
+                "n_symbols": len(symbols),
+                "fetch_ms": fetch_ms,
+                "persist_ms": persist_ms,
+                "total_ms": total_ms,
+            },
+        )
+        return {
+            "scan_id": str(scan_id),
+            "breakouts_found": breakouts_found,
+            "duration_ms": total_ms,
+        }
 
     except Exception as e:                          # noqa: BLE001
-        logger.exception("scan.failed", extra={"scan_id": str(scan_id)})
+        logger.exception(
+            "scan.failed",
+            extra={"scan_id": str(scan_id), "duration_ms": round((time.monotonic() - t0) * 1000)},
+        )
         await scan_repo.fail_scan(pool, scan_id, str(e))
         raise
 

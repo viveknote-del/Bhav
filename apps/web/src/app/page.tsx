@@ -1,10 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiClient } from '@/lib/api'
 import type { Breakout, BreakoutType, ScanDetail, ScanRunList } from '@/types'
 import { BreakoutCard } from '@/components/BreakoutCard'
 import { BreakoutFilters } from '@/components/BreakoutFilters'
+
+const RUNNING_POLL_MS = 4000
 
 export default function Home() {
   const [latest, setLatest] = useState<ScanDetail | null>(null)
@@ -13,35 +15,42 @@ export default function Home() {
   const [type, setType] = useState<BreakoutType | null>(null)
   const [minScore, setMinScore] = useState(0)
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    ;(async () => {
-      try {
-        const list = await apiClient.get<ScanRunList>('/v1/scans', { params: { limit: 1 } })
-        const runs = list.data.items
-        if (runs.length === 0) {
-          if (!cancelled) {
-            setLatest(null)
-            setError(null)
-          }
-          return
-        }
-        const detail = await apiClient.get<ScanDetail>(`/v1/scans/${runs[0].id}`)
-        if (!cancelled) {
-          setLatest(detail.data)
-          setError(null)
-        }
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message ?? 'Failed to load')
-      } finally {
-        if (!cancelled) setLoading(false)
+  const load = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const list = await apiClient.get<ScanRunList>('/v1/scans', {
+        params: { limit: 1 },
+        signal,
+      })
+      const runs = list.data.items
+      if (runs.length === 0) {
+        setLatest(null)
+        setError(null)
+        return
       }
-    })()
-    return () => {
-      cancelled = true
+      const detail = await apiClient.get<ScanDetail>(`/v1/scans/${runs[0].id}`, { signal })
+      setLatest(detail.data)
+      setError(null)
+    } catch (e) {
+      if ((e as Error).name === 'CanceledError') return
+      setError((e as Error).message ?? 'Failed to load')
     }
   }, [])
+
+  useEffect(() => {
+    const ac = new AbortController()
+    setLoading(true)
+    load(ac.signal).finally(() => setLoading(false))
+    return () => ac.abort()
+  }, [load])
+
+  // Poll while the latest scan is RUNNING so the UI flips to COMPLETED automatically.
+  useEffect(() => {
+    if (!latest || latest.scan.status !== 'RUNNING') return
+    const handle = setInterval(() => {
+      void load()
+    }, RUNNING_POLL_MS)
+    return () => clearInterval(handle)
+  }, [latest, load])
 
   const filtered = useMemo<Breakout[]>(() => {
     if (!latest) return []
@@ -52,6 +61,8 @@ export default function Home() {
     })
   }, [latest, type, minScore])
 
+  const isRunning = latest?.scan.status === 'RUNNING'
+
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="max-w-6xl mx-auto px-6 py-8">
@@ -59,12 +70,14 @@ export default function Home() {
           <h1 className="text-3xl font-semibold tracking-tight">Today's breakouts</h1>
           {latest && (
             <p className="text-sm text-zinc-500 mt-1">
-              Scan {latest.scan.id.slice(0, 8)} · {latest.scan.status.toLowerCase()} ·
-              {' '}{latest.scan.breakouts_found ?? '—'} signals over{' '}
+              Scan {latest.scan.id.slice(0, 8)} · {latest.scan.status.toLowerCase()} ·{' '}
+              {latest.scan.breakouts_found ?? '—'} signals over{' '}
               {latest.scan.universe_size ?? '—'} symbols
             </p>
           )}
         </header>
+
+        {isRunning && <RunningBanner />}
 
         {error && (
           <div className="bg-red-950/40 border border-red-900 text-red-200 px-4 py-3 rounded mb-4 text-sm">
@@ -95,7 +108,9 @@ export default function Home() {
             />
 
             {filtered.length === 0 ? (
-              <p className="text-zinc-500 text-sm">No breakouts match the current filters.</p>
+              <p className="text-zinc-500 text-sm">
+                {isRunning ? 'Scan in progress…' : 'No breakouts match the current filters.'}
+              </p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {filtered.map((b) => (
@@ -107,6 +122,15 @@ export default function Home() {
         )}
       </div>
     </main>
+  )
+}
+
+function RunningBanner() {
+  return (
+    <div className="mb-4 bg-amber-950/40 border border-amber-900 text-amber-200 px-4 py-3 rounded text-sm flex items-center gap-3">
+      <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+      Scan in progress — results update automatically when it finishes.
+    </div>
   )
 }
 
