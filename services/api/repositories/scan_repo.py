@@ -64,6 +64,14 @@ async def get_scan(pool: asyncpg.Pool, scan_id: UUID) -> asyncpg.Record | None:
         )
 
 
+async def update_summary(pool: asyncpg.Pool, scan_id: UUID, summary: str) -> None:
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE scan_runs SET summary = $2 WHERE id = $1",
+            scan_id, summary,
+        )
+
+
 async def list_scans(
     pool: asyncpg.Pool, limit: int = 20, offset: int = 0
 ) -> tuple[list[asyncpg.Record], int]:

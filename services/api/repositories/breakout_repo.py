@@ -101,3 +101,44 @@ async def get_breakout(pool: asyncpg.Pool, breakout_id: UUID) -> asyncpg.Record 
             """,
             breakout_id,
         )
+
+
+async def top_breakouts_for_scan(
+    pool: asyncpg.Pool, scan_run_id: UUID, limit: int
+) -> list[asyncpg.Record]:
+    """Top-N breakouts for a scan, ordered by composite score. Used by the
+    commentary worker to cap how many breakouts get AI-written commentary."""
+    async with pool.acquire() as conn:
+        return list(await conn.fetch(
+            """
+            SELECT b.id, b.scan_run_id, b.symbol, b.detected_at, b.breakout_type,
+                   b.pattern_subtype, b.price, b.breakout_level, b.volume_ratio,
+                   b.composite_score, b.indicators, b.ai_commentary, b.news_links,
+                   i.name AS instrument_name, i.sector AS instrument_sector
+              FROM breakouts b
+              JOIN instruments i ON i.symbol = b.symbol
+             WHERE b.scan_run_id = $1
+             ORDER BY b.composite_score DESC
+             LIMIT $2
+            """,
+            scan_run_id, limit,
+        ))
+
+
+async def update_commentary(
+    pool: asyncpg.Pool,
+    breakout_id: UUID,
+    commentary: str,
+    news_links: list[dict] | None = None,
+) -> None:
+    async with pool.acquire() as conn:
+        if news_links is None:
+            await conn.execute(
+                "UPDATE breakouts SET ai_commentary = $2 WHERE id = $1",
+                breakout_id, commentary,
+            )
+        else:
+            await conn.execute(
+                "UPDATE breakouts SET ai_commentary = $2, news_links = $3::jsonb WHERE id = $1",
+                breakout_id, commentary, json.dumps(news_links),
+            )

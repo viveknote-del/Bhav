@@ -1,23 +1,25 @@
-"""
-Prompt as first-class code.
+"""Prompt as first-class code.
 
-Every AI prompt in this app lives here — not as inline strings in services.
-This enables: versioning, eval testing, model targeting, and centralized swaps.
+Every AI prompt lives here — never inline strings in services. Enables
+versioning, eval testing, model targeting, and centralized swaps. Bumping
+`version` is a deliberate, cache-invalidating change (the prefix bytes
+change, so the next call writes a new cache entry).
 
-Usage:
-    from prompts import get_prompt
-    prompt = get_prompt("copy_writer")
-    result = await llm.complete(user_input, system=prompt.system, model=prompt.model)
+Few-shot examples live on the Prompt and become message-history turns so
+that the entire system + examples block is cacheable. See providers/llm.py
+for how they're assembled into a request.
 """
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 
 @dataclass
 class EvalCase:
-    """One test case for a prompt. Runs during CI to catch quality regressions."""
+    """One test case. Runs during CI to catch prompt quality regressions."""
     input: str
-    must_contain: list[str] = field(default_factory=list)  # substrings that must appear
-    must_not_contain: list[str] = field(default_factory=list)  # substrings that must NOT appear
+    must_contain: list[str] = field(default_factory=list)
+    must_not_contain: list[str] = field(default_factory=list)
     min_length: int = 10
     max_length: int | None = None
     description: str = ""
@@ -25,11 +27,19 @@ class EvalCase:
 
 @dataclass
 class Prompt:
-    """A versioned, testable prompt definition."""
+    """A versioned, testable prompt definition.
+
+    `examples` are (user_input, assistant_output) pairs. They render into
+    the conversation as alternating user/assistant turns; the LLM provider
+    places the cache breakpoint on the last example so system + examples
+    cache together as one prefix.
+    """
     name: str
     version: str
     system: str
-    model: str = "claude-haiku-4-5-20251001"
+    examples: list[tuple[str, str]] = field(default_factory=list)
+    model: str | None = None              # falls back to settings.llm_model
     max_tokens: int = 1024
+    temperature: float | None = None
     eval_cases: list[EvalCase] = field(default_factory=list)
-    notes: str = ""  # why this prompt exists / key design decisions
+    notes: str = ""

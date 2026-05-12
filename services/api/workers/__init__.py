@@ -10,6 +10,7 @@ import logging
 
 from arq_client import redis_settings
 from db import open_pool
+from workers.commentary import commentary_for_breakout, commentary_for_scan
 from workers.scan_eod import scan_eod
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,10 @@ logger = logging.getLogger(__name__)
 
 async def startup(ctx: dict) -> None:
     ctx["pool"] = await open_pool()
-    logger.info("worker.startup", extra={"jobs": [scan_eod.__name__]})
+    logger.info(
+        "worker.startup",
+        extra={"jobs": ["scan_eod", "commentary_for_scan", "commentary_for_breakout"]},
+    )
 
 
 async def shutdown(ctx: dict) -> None:
@@ -28,7 +32,7 @@ async def shutdown(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    functions = [scan_eod]
+    functions = [scan_eod, commentary_for_scan, commentary_for_breakout]
     redis_settings = redis_settings()
     on_startup = startup
     on_shutdown = shutdown

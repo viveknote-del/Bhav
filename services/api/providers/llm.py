@@ -1,250 +1,198 @@
+"""Single abstraction layer for Claude calls.
+
+HARD RULE: nothing else imports `anthropic` directly. All AI calls flow
+through `generate(prompt_name, user_message, ...)`.
+
+How caching works here:
+- Each `Prompt` in prompts/registry.py defines a system block + a list of
+  (user, assistant) few-shot examples.
+- We render `system` as a list-of-blocks and attach `cache_control` to the
+  last few-shot example's assistant content. That caches the entire
+  prefix (system + examples) in one breakpoint.
+- The per-call user message goes at the end and is NOT cached — it varies.
+- Bumping `prompt.version` invalidates the cache deliberately (the prefix
+  bytes change). That's the whole point of versioning.
+
+Cost tracking:
+- Every call logs token usage broken down by input/output/cache_read/
+  cache_write, with a $ estimate at Sonnet 4.6 prices.
+- Override the model per prompt via `Prompt.model`; default is settings.llm_model.
 """
-Single abstraction layer for all LLM calls.
+from __future__ import annotations
 
-HARD RULE: Never import anthropic/openai directly from routers, services, or workers.
-All AI calls go through this module.
-
-Provider order (automatic fallback):
-  1. Anthropic Claude  — primary
-  2. OpenAI           — fallback on rate limit or 5xx from Anthropic
-  3. Rule-based       — caller-supplied fn, or raises ServiceUnavailable
-
-Prompt caching: enabled by default for system prompts. Cache hits cost 10% of normal.
-Cost tracking: every call logs token usage. See DOCS/AI-FIRST.md for cost breakdown.
-
-See prompts/registry.py for named, versioned prompts.
-"""
 import logging
-from typing import Any, AsyncIterator, Callable
+import time
+from dataclasses import dataclass
+from typing import Any
 
 import anthropic
 
 from config import settings
+from prompts import get_prompt
+from prompts.base import Prompt
 
 logger = logging.getLogger(__name__)
 
-_anthropic_client: anthropic.AsyncAnthropic | None = None
-_openai_client: Any | None = None  # lazy import
+# Per-1M-token prices. Sonnet 4.6 numbers from Anthropic's published pricing.
+# Cache reads = ~0.1× input; cache writes (5-min ephemeral) = ~1.25× input.
+_PRICING_PER_1M = {
+    "claude-sonnet-4-6": {"input": 3.00, "output": 15.00, "cache_read": 0.30, "cache_write": 3.75},
+    "claude-opus-4-7":   {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_write": 6.25},
+    "claude-haiku-4-5":  {"input": 1.00, "output":  5.00, "cache_read": 0.10, "cache_write": 1.25},
+}
+_DEFAULT_PRICING = _PRICING_PER_1M["claude-sonnet-4-6"]
 
 
-def _get_anthropic() -> anthropic.AsyncAnthropic:
-    global _anthropic_client
-    if _anthropic_client is None:
-        _anthropic_client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    return _anthropic_client
+# ──────────────────── client lifecycle ──────────────────────
+
+_client: anthropic.AsyncAnthropic | None = None
 
 
-def _get_openai() -> Any:
-    global _openai_client
-    if _openai_client is None:
-        try:
-            from openai import AsyncOpenAI
-            _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
-        except ImportError:
-            raise RuntimeError("openai package not installed. Run: pip install openai")
-    return _openai_client
+def _get_client() -> anthropic.AsyncAnthropic:
+    global _client
+    if _client is None:
+        if not settings.anthropic_api_key:
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY is not set. Add it to .env to enable AI commentary."
+            )
+        _client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    return _client
 
 
-async def _anthropic_complete(
-    prompt: str,
-    system: str,
-    model: str,
-    max_tokens: int,
-    cache_system: bool,
-) -> tuple[str, Any]:
-    """Returns (text, usage)."""
-    client = _get_anthropic()
-    system_block = [
-        {
-            "type": "text",
-            "text": system,
-            **({"cache_control": {"type": "ephemeral"}} if cache_system else {}),
+# ──────────────────── public types ──────────────────────
+
+@dataclass(frozen=True)
+class LLMUsage:
+    """Token + cost breakdown for a single Claude call."""
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_write_tokens: int
+    cost_usd: float
+    latency_ms: int
+
+    def as_dict(self) -> dict:
+        return {
+            "model": self.model,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
+            "cost_usd": round(self.cost_usd, 6),
+            "latency_ms": self.latency_ms,
         }
-    ]
-    response = await client.messages.create(
+
+
+@dataclass(frozen=True)
+class LLMResult:
+    text: str
+    usage: LLMUsage
+
+
+# ──────────────────── message assembly ──────────────────────
+
+def _build_messages(prompt: Prompt, user_message: str) -> list[dict]:
+    """Build the messages array with cache_control on the last few-shot example.
+
+    Layout when prompt has N examples:
+        [user_1, assistant_1, ..., user_N, assistant_N(cached), user_call]
+
+    The cache marker on assistant_N's content caches everything before it —
+    including system + tools (which render before messages per the API).
+    """
+    msgs: list[dict] = []
+    for i, (ex_user, ex_assistant) in enumerate(prompt.examples):
+        msgs.append({"role": "user", "content": ex_user})
+        is_last = (i == len(prompt.examples) - 1)
+        if is_last:
+            msgs.append({
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": ex_assistant, "cache_control": {"type": "ephemeral"}}
+                ],
+            })
+        else:
+            msgs.append({"role": "assistant", "content": ex_assistant})
+
+    msgs.append({"role": "user", "content": user_message})
+    return msgs
+
+
+def _build_system(prompt: Prompt) -> list[dict] | str:
+    """Plain string is fine when there are examples — the cache marker on the
+    last example caches system+examples together. Only when there are NO
+    examples do we cache the system block itself."""
+    if not prompt.examples:
+        return [{"type": "text", "text": prompt.system, "cache_control": {"type": "ephemeral"}}]
+    return prompt.system
+
+
+def _cost_usd(model: str, usage: Any) -> float:
+    pricing = _PRICING_PER_1M.get(model, _DEFAULT_PRICING)
+    in_tokens = getattr(usage, "input_tokens", 0) or 0
+    out_tokens = getattr(usage, "output_tokens", 0) or 0
+    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+    cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    return (
+        in_tokens   * pricing["input"]       / 1_000_000
+        + out_tokens  * pricing["output"]      / 1_000_000
+        + cache_read  * pricing["cache_read"]  / 1_000_000
+        + cache_write * pricing["cache_write"] / 1_000_000
+    )
+
+
+# ──────────────────── public API ──────────────────────
+
+async def generate(prompt_name: str, user_message: str, **overrides) -> LLMResult:
+    """Run a prompt against Claude. Returns the text and usage stats.
+
+    `overrides` accepts: model, max_tokens, temperature — useful for evals
+    or one-off tweaks. Defaults come from the Prompt in prompts/registry.py
+    (and settings.llm_model when the prompt leaves model unset).
+    """
+    prompt = get_prompt(prompt_name)
+    model = overrides.get("model") or prompt.model or settings.llm_model
+    max_tokens = overrides.get("max_tokens", prompt.max_tokens)
+    temperature = overrides.get("temperature", prompt.temperature)
+
+    client = _get_client()
+    messages = _build_messages(prompt, user_message)
+    system = _build_system(prompt)
+
+    req_kwargs: dict[str, Any] = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": system,
+        "messages": messages,
+    }
+    if temperature is not None:
+        req_kwargs["temperature"] = temperature
+
+    t0 = time.monotonic()
+    response = await client.messages.create(**req_kwargs)
+    elapsed_ms = round((time.monotonic() - t0) * 1000)
+
+    text = "".join(b.text for b in response.content if getattr(b, "type", None) == "text")
+
+    usage = LLMUsage(
         model=model,
-        max_tokens=max_tokens,
-        system=system_block,
-        messages=[{"role": "user", "content": prompt}],
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
+        cache_read_tokens=response.usage.cache_read_input_tokens or 0,
+        cache_write_tokens=response.usage.cache_creation_input_tokens or 0,
+        cost_usd=_cost_usd(model, response.usage),
+        latency_ms=elapsed_ms,
     )
-    return response.content[0].text, response.usage
-
-
-async def _openai_complete(
-    prompt: str,
-    system: str,
-    model: str,
-    max_tokens: int,
-) -> tuple[str, Any]:
-    """OpenAI fallback. Model is mapped to closest GPT equivalent."""
-    client = _get_openai()
-
-    # Map Claude model names to OpenAI equivalents
-    oai_model = "gpt-4o-mini" if "haiku" in model else "gpt-4o"
-
-    response = await client.chat.completions.create(
-        model=oai_model,
-        max_tokens=max_tokens,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    return response.choices[0].message.content, response.usage
-
-
-async def complete(
-    prompt: str,
-    system: str = "You are a helpful assistant.",
-    model: str = "claude-haiku-4-5-20251001",
-    max_tokens: int = 1024,
-    cache_system: bool = True,
-    fallback_fn: Callable[[str], str] | None = None,
-) -> str:
-    """
-    Call LLM with automatic provider fallback.
-
-    Provider order: Anthropic → OpenAI → fallback_fn → raises 503.
-
-    Args:
-        prompt: user message
-        system: system prompt (cached by default — keep it static)
-        model: Claude model ID (auto-mapped to OpenAI equivalent on fallback)
-        max_tokens: output token limit
-        cache_system: enable prompt caching for system prompt (default True)
-        fallback_fn: last-resort rule-based function(prompt) -> str
-    """
-    # Try Anthropic
-    if settings.anthropic_api_key:
-        try:
-            text, usage = await _anthropic_complete(prompt, system, model, max_tokens, cache_system)
-            _log_usage(usage, model=model, provider="anthropic")
-            return text
-        except anthropic.RateLimitError:
-            logger.warning("llm.anthropic.rate_limited — trying OpenAI fallback")
-        except anthropic.APIStatusError as e:
-            if e.status_code >= 500:
-                logger.warning("llm.anthropic.5xx — trying OpenAI fallback", extra={"status": e.status_code})
-            else:
-                raise
-
-    # Try OpenAI
-    if settings.openai_api_key:
-        try:
-            from openai import RateLimitError as OAIRateLimitError
-            text, usage = await _openai_complete(prompt, system, model, max_tokens)
-            _log_usage(usage, model=model, provider="openai")
-            return text
-        except OAIRateLimitError:
-            logger.warning("llm.openai.rate_limited — trying rule-based fallback")
-        except Exception as e:
-            logger.error("llm.openai.error", extra={"error": str(e)})
-
-    # Try rule-based fallback
-    if fallback_fn:
-        logger.warning("llm.using_rule_based_fallback")
-        return fallback_fn(prompt)
-
-    from fastapi import HTTPException
-    raise HTTPException(503, "AI generation temporarily unavailable. Please try again shortly.")
-
-
-async def complete_structured(
-    prompt: str,
-    schema: type,
-    system: str = "You are a helpful assistant.",
-    model: str = "claude-haiku-4-5-20251001",
-    max_tokens: int = 1024,
-    fallback_fn: Callable[[str], Any] | None = None,
-) -> Any:
-    """
-    Call LLM and validate output as a Pydantic model.
-    Raises ValueError if the response doesn't match the schema.
-    """
-    import json
-
-    schema_str = json.dumps(schema.model_json_schema(), indent=2)
-    full_prompt = (
-        f"{prompt}\n\n"
-        f"Respond ONLY with valid JSON matching this schema. No markdown, no explanation:\n"
-        f"{schema_str}"
-    )
-
-    raw = await complete(full_prompt, system=system, model=model, max_tokens=max_tokens)
-
-    raw = raw.strip()
-    if raw.startswith("```"):
-        parts = raw.split("```")
-        raw = parts[1].lstrip("json").strip() if len(parts) >= 2 else raw
-    raw = raw.strip()
-
-    try:
-        return schema.model_validate_json(raw)
-    except Exception as e:
-        logger.warning(
-            "llm.structured_output.invalid",
-            extra={"error": str(e), "raw_preview": raw[:300], "model": model},
-        )
-        if fallback_fn:
-            return fallback_fn(prompt)
-        raise ValueError(f"LLM returned invalid structure: {e}")
-
-
-async def stream(
-    prompt: str,
-    system: str = "You are a helpful assistant.",
-    model: str = "claude-haiku-4-5-20251001",
-    max_tokens: int = 2048,
-) -> AsyncIterator[str]:
-    """
-    Stream Claude's response. Falls back to non-streaming OpenAI if Anthropic unavailable.
-    Use for generation that takes > 2 seconds to avoid blank-screen UX.
-    """
-    if settings.anthropic_api_key:
-        client = _get_anthropic()
-        try:
-            async with client.messages.stream(
-                model=model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=[{"role": "user", "content": prompt}],
-            ) as s:
-                async for text in s.text_stream:
-                    yield text
-            return
-        except Exception as e:
-            logger.warning("llm.stream.anthropic_failed", extra={"error": str(e)})
-
-    # Non-streaming OpenAI fallback for stream endpoints
-    text = await complete(prompt, system=system, model=model, max_tokens=max_tokens)
-    yield text
-
-
-def _log_usage(usage: Any, model: str, provider: str) -> None:
-    cache_read = getattr(usage, "cache_read_input_tokens", 0)
-    cache_creation = getattr(usage, "cache_creation_input_tokens", 0)
-
-    # OpenAI usage object has different attribute names
-    if hasattr(usage, "prompt_tokens"):
-        input_tokens = usage.prompt_tokens
-        output_tokens = usage.completion_tokens
-        cache_read = 0
-        cache_creation = 0
-    else:
-        input_tokens = usage.input_tokens
-        output_tokens = usage.output_tokens
-
-    regular_input = input_tokens - cache_read - cache_creation
 
     logger.info(
-        "llm.usage",
+        "llm.call",
         extra={
-            "provider": provider,
-            "model": model,
-            "input_tokens": regular_input,
-            "cache_creation_tokens": cache_creation,
-            "cache_read_tokens": cache_read,
-            "output_tokens": output_tokens,
-            "cache_savings_pct": round(cache_read / max(input_tokens, 1) * 100),
+            "prompt": prompt.name,
+            "prompt_version": prompt.version,
+            "stop_reason": response.stop_reason,
+            **usage.as_dict(),
         },
     )
+
+    return LLMResult(text=text.strip(), usage=usage)
