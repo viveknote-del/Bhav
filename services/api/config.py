@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     llm_model: str = "claude-sonnet-4-6"
 
     newsapi_key: str = ""
+    alphavantage_api_key: str = ""
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
