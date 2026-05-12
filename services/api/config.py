@@ -2,33 +2,33 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    app_name: str = "{{PROJECT_DISPLAY_NAME}} API"
+    app_name: str = "Bhav API"
     app_version: str = "0.1.0"
-    debug: bool = False
+    debug: bool = True
 
-    # Database
-    supabase_url: str
-    supabase_anon_key: str
-    supabase_service_role_key: str
-    database_url: str
+    database_url: str = "postgresql://postgres:postgres@localhost:5434/bhav"
+    redis_url: str = "redis://localhost:6381"
 
-    # Redis
-    redis_url: str = "redis://localhost:6379"
-
-    # Auth
-    jwt_secret: str
-    jwt_algorithm: str = "HS256"
-
-    # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
 
-    # AI (optional)
+    market_data_provider: str = "yfinance"
+    scan_universe: str = "NSE_500"
+    intraday_enabled: bool = False
+    commentary_top_n: int = 20
+
     anthropic_api_key: str = ""
-    openai_api_key: str = ""
+    llm_model: str = "claude-sonnet-4-6"
+
+    newsapi_key: str = ""
+
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    alert_min_score: int = 80
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"
 
 
 settings = Settings()
