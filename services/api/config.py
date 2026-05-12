@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     newsapi_key: str = ""
     alphavantage_api_key: str = ""
+    twelvedata_api_key: str = ""
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

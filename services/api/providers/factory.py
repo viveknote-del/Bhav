@@ -10,18 +10,21 @@ from functools import cache
 from config import settings
 from providers.alphavantage_provider import AlphaVantageProvider
 from providers.market_data import MarketDataProvider
+from providers.twelvedata_provider import TwelveDataProvider
 from providers.yfinance_provider import YFinanceProvider
 
-_SUPPORTED = ("yfinance", "alphavantage")
+_SUPPORTED = ("yfinance", "alphavantage", "twelvedata")
 
 
 @cache
 def get_market_data_provider() -> MarketDataProvider:
-    name = settings.market_data_provider.lower()
+    name = settings.market_data_provider.lower().replace("_", "")
     if name == "yfinance":
         return YFinanceProvider()
-    if name in ("alphavantage", "alpha_vantage", "av"):
+    if name in ("alphavantage", "av"):
         return AlphaVantageProvider()
+    if name in ("twelvedata", "td"):
+        return TwelveDataProvider()
     raise RuntimeError(
         f"Unknown MARKET_DATA_PROVIDER: {settings.market_data_provider!r}. "
         f"Supported: {', '.join(_SUPPORTED)}."
