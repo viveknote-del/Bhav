@@ -113,31 +113,44 @@ async def _scan_symbols(
     provider: MarketDataProvider,
     symbols: list[str],
 ) -> list[tuple[BreakoutSignal, float]]:
-    sem = asyncio.Semaphore(FETCH_CONCURRENCY)
+    """Batch-fetch all bars in one provider call (`get_bars_many`), then run
+    detectors in-process. The batch fetch is the biggest rate-limit win
+    against yfinance — one HTTP request per N symbols instead of N requests.
+    """
+    bars_by_symbol = await provider.get_bars_many(symbols, days=FETCH_DAYS)
 
-    async def _one(symbol: str) -> list[tuple[BreakoutSignal, float]]:
-        async with sem:
-            bars = await _get_fresh_bars(pool, provider, symbol)
-        if bars.empty:
-            return []
-        out: list[tuple[BreakoutSignal, float]] = []
+    # Persist all fetched bars to the cache in parallel (cheap, all hit local DB).
+    await asyncio.gather(*(
+        _persist_bars_safe(pool, sym, df) for sym, df in bars_by_symbol.items()
+    ))
+
+    n_fetched = len(bars_by_symbol)
+    n_missing = len(symbols) - n_fetched
+    if n_missing:
+        logger.warning(
+            "scan.bars_missing",
+            extra={"missing": n_missing, "fetched": n_fetched, "total": len(symbols)},
+        )
+
+    scored: list[tuple[BreakoutSignal, float]] = []
+    for symbol in symbols:
+        bars = bars_by_symbol.get(symbol)
+        if bars is None or bars.empty:
+            continue
         for detect in DETECTORS:
             signal = detect(symbol, bars)
             if signal is None:
                 continue
             composite = score_signal(signal, bars)
-            out.append((signal, composite))
-        return out
-
-    results = await asyncio.gather(*(_one(s) for s in symbols), return_exceptions=True)
-
-    scored: list[tuple[BreakoutSignal, float]] = []
-    for r in results:
-        if isinstance(r, Exception):
-            logger.warning("scan.symbol_failed", extra={"error": str(r)})
-            continue
-        scored.extend(r)
+            scored.append((signal, composite))
     return scored
+
+
+async def _persist_bars_safe(pool: asyncpg.Pool, symbol: str, df: pd.DataFrame) -> None:
+    try:
+        await bar_repo.upsert_bars(pool, symbol, df)
+    except Exception as e:                                    # noqa: BLE001
+        logger.warning("scan.cache_write_failed", extra={"symbol": symbol, "error": str(e)})
 
 
 async def _get_fresh_bars(

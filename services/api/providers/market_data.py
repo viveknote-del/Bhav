@@ -42,13 +42,26 @@ class MarketDataProvider(ABC):
 
     @abstractmethod
     async def get_bars(self, symbol: str, days: int) -> pd.DataFrame:
-        """
-        Return last `days` of daily OHLCV bars.
+        """Return last `days` of daily OHLCV bars.
 
-        DataFrame is indexed by date (DatetimeIndex) with columns:
+        DataFrame is indexed by date (DatetimeIndex) with columns
         open, high, low, close, volume. Empty DataFrame if no data.
         """
         ...
+
+    async def get_bars_many(self, symbols: list[str], days: int) -> dict[str, pd.DataFrame]:
+        """Batch fetch — default implementation just loops over `get_bars`.
+
+        Concrete providers should override this with a batch API call when
+        the upstream supports it (yfinance does, via `yf.download`). Returns
+        a dict symbol → DataFrame; failed symbols are silently omitted.
+        """
+        out: dict[str, pd.DataFrame] = {}
+        for symbol in symbols:
+            df = await self.get_bars(symbol, days)
+            if not df.empty:
+                out[symbol] = df
+        return out
 
     @abstractmethod
     async def get_quote(self, symbol: str) -> Quote | None:
