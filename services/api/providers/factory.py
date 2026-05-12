@@ -11,16 +11,19 @@ from config import settings
 from providers.alphavantage_provider import AlphaVantageProvider
 from providers.market_data import MarketDataProvider
 from providers.twelvedata_provider import TwelveDataProvider
+from providers.yahoo_direct_provider import YahooDirectProvider
 from providers.yfinance_provider import YFinanceProvider
 
-_SUPPORTED = ("yfinance", "alphavantage", "twelvedata")
+_SUPPORTED = ("yfinance", "yahoo_direct", "alphavantage", "twelvedata")
 
 
 @cache
 def get_market_data_provider() -> MarketDataProvider:
-    name = settings.market_data_provider.lower().replace("_", "")
+    name = settings.market_data_provider.lower().replace("_", "").replace("-", "")
     if name == "yfinance":
         return YFinanceProvider()
+    if name in ("yahoodirect", "yahoo"):
+        return YahooDirectProvider()
     if name in ("alphavantage", "av"):
         return AlphaVantageProvider()
     if name in ("twelvedata", "td"):
